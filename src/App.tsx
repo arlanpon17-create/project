@@ -1,19 +1,2632 @@
-// Стартовый экран твоего проекта — пока он простой и пустой.
-// Когда понадобятся вход и база данных, готовые примеры уже лежат рядом:
-//   src/components/Auth.tsx      — вход / регистрация
-//   src/components/Entries.tsx   — чтение и запись в базу
-// Просто попроси Codex подключить их на экран.
+import { useEffect, useMemo, useState } from 'react';
+import type { FormEvent, ReactNode } from 'react';
+import {
+  ArrowRight,
+  BookOpen,
+  Check,
+  CircleHelp,
+  Coins,
+  Diamond,
+  Flame,
+  Gamepad2,
+  Gem,
+  Gift,
+  Globe2,
+  GraduationCap,
+  Heart,
+  HeartMinus,
+  Home,
+  ListCollapse,
+  Lock,
+  LogIn,
+  LogOut,
+  PackageOpen,
+  Play,
+  RotateCcw,
+  Save,
+  Settings,
+  ShoppingBag,
+  Sparkles,
+  Timer,
+  Trophy,
+  UserPlus,
+  Volume2,
+  X,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+import AITutor from './components/AITutor';
+import DesignEditor from './components/DesignEditor';
+
+type Language =
+  | 'All'
+  | 'Kazakh'
+  | 'Spanish'
+  | 'French'
+  | 'German'
+  | 'English'
+  | 'Portuguese'
+  | 'Italian'
+  | 'Russian'
+  | 'Japanese'
+  | 'Chinese'
+  | 'Korean'
+  | 'Arabic'
+  | 'Hindi'
+  | 'Turkish'
+  | 'Swedish'
+  | 'Dutch'
+  | 'Vietnamese';
+type View = 'start' | 'quest' | 'languages' | 'lessons' | 'shop' | 'login' | 'register' | 'settings';
+type LessonPackId = string;
+type LessonPack = {
+  id: LessonPackId;
+  title: string;
+  description: string;
+  keywords: string[];
+  language?: Exclude<Language, 'All'>;
+  size?: number;
+};
+type ChestRarity = 'Super rare' | 'Rare' | 'Epic' | 'Mythic' | 'Legendary' | 'Ultimate' | 'Ultra ultimate';
+type RarityInventory = Record<ChestRarity, number>;
+type ChestPrize = {
+  kind: 'xp' | 'diamonds' | 'freeze';
+  amount: number;
+  label: string;
+};
+
+function ButtonLabel({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
+  return (
+    <span className="button-label">
+      <Icon aria-hidden="true" size={18} strokeWidth={2.4} />
+      <span>{children}</span>
+    </span>
+  );
+}
+
+function StatLabel({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
+  return (
+    <span className="stat-label">
+      <Icon aria-hidden="true" size={16} strokeWidth={2.4} />
+      <span>{children}</span>
+    </span>
+  );
+}
+
+type PlayerProgress = {
+  selectedLanguage: Language;
+  questIndex: number;
+  hearts: number;
+  score: number;
+  streak: number;
+  xp: number;
+  diamonds: number;
+  shopChests: number;
+  rarityChests: RarityInventory;
+  streakFreezes: number;
+  lastDailyLessonDate: string | null;
+  chestOpened: boolean;
+  heartRefillAt: number | null;
+};
+
+type PlayerSettings = {
+  sound: boolean;
+  compactWordbook: boolean;
+  hardMode: boolean;
+  bossMode: boolean;
+};
+
+type Account = {
+  password: string;
+  progress: PlayerProgress;
+  settings: PlayerSettings;
+};
+
+type Accounts = Record<string, Account>;
+
+type Quest = {
+  prompt: string;
+  answer: string;
+  options: string[];
+  hint: string;
+  world: string;
+  language: Exclude<Language, 'All'>;
+};
+
+const accountsKey = 'language-quest-accounts';
+const guestProgressKey = 'language-quest-guest-progress';
+const guestSettingsKey = 'language-quest-guest-settings';
+const maxHearts = 5;
+const heartRefillMs = 60 * 60 * 1000;
+const defaultLessonQuestionCount = 10;
+const bossModeTimeLimit = 120;
+const shopChestXpCost = 700;
+const shopChestDiamondCost = 700;
+const xpBundleDiamondCost = 100;
+const xpBundleReward = 500;
+const diamondBundleXpCost = 200;
+const diamondBundleReward = 400;
+const streakFreezeXpCost = 1000;
+const streakFreezeDiamondCost = 1000;
+const chestRarities: ChestRarity[] = ['Super rare', 'Rare', 'Epic', 'Mythic', 'Legendary', 'Ultimate', 'Ultra ultimate'];
+const chestRarityWeights: Record<ChestRarity, number> = {
+  'Super rare': 32,
+  Rare: 26,
+  Epic: 18,
+  Mythic: 11,
+  Legendary: 7,
+  Ultimate: 4,
+  'Ultra ultimate': 2,
+};
+const rarityRewards: Record<ChestRarity, { xp: number; diamonds: number; freezes: number }> = {
+  'Super rare': { xp: 80, diamonds: 20, freezes: 0 },
+  Rare: { xp: 120, diamonds: 35, freezes: 0 },
+  Epic: { xp: 180, diamonds: 55, freezes: 1 },
+  Mythic: { xp: 260, diamonds: 80, freezes: 1 },
+  Legendary: { xp: 380, diamonds: 100, freezes: 2 },
+  Ultimate: { xp: 400, diamonds: 100, freezes: 2 },
+  'Ultra ultimate': { xp: 400, diamonds: 100, freezes: 2 },
+};
+
+function getRandomChestPrize(reward: { xp: number; diamonds: number; freezes: number }): ChestPrize {
+  const prizes: ChestPrize[] = [
+    { kind: 'xp', amount: reward.xp, label: `${reward.xp} XP` },
+    { kind: 'diamonds', amount: reward.diamonds, label: `${reward.diamonds} diamonds` },
+  ];
+
+  if (reward.freezes > 0) {
+    prizes.push({ kind: 'freeze', amount: reward.freezes, label: `${reward.freezes} streak freeze${reward.freezes === 1 ? '' : 's'}` });
+  }
+
+  return prizes[Math.floor(Math.random() * prizes.length)];
+}
+
+function createEmptyRarityInventory(): RarityInventory {
+  return chestRarities.reduce(
+    (inventory, rarity) => ({ ...inventory, [rarity]: 0 }),
+    {} as RarityInventory,
+  );
+}
+
+function normalizeRarityInventory(inventory?: Partial<RarityInventory>): RarityInventory {
+  return chestRarities.reduce(
+    (nextInventory, rarity) => ({
+      ...nextInventory,
+      [rarity]: inventory?.[rarity] ?? 0,
+    }),
+    {} as RarityInventory,
+  );
+}
+
+function getRandomChestRarity(): ChestRarity {
+  const totalWeight = chestRarities.reduce((total, rarity) => total + chestRarityWeights[rarity], 0);
+  let roll = Math.random() * totalWeight;
+
+  for (const rarity of chestRarities) {
+    roll -= chestRarityWeights[rarity];
+    if (roll <= 0) return rarity;
+  }
+
+  return 'Super rare';
+}
+
+const defaultProgress: PlayerProgress = {
+  selectedLanguage: 'All',
+  questIndex: 0,
+  hearts: maxHearts,
+  score: 0,
+  streak: 0,
+  xp: 0,
+  diamonds: 0,
+  shopChests: 0,
+  rarityChests: createEmptyRarityInventory(),
+  streakFreezes: 0,
+  lastDailyLessonDate: null,
+  chestOpened: false,
+  heartRefillAt: null,
+};
+const defaultSettings: PlayerSettings = {
+  sound: false,
+  compactWordbook: false,
+  hardMode: false,
+  bossMode: false,
+};
+
+function readJson<T>(key: string, fallback: T): T {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? { ...fallback, ...JSON.parse(value) } : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readAccounts(): Accounts {
+  return readJson<Accounts>(accountsKey, {});
+}
+
+function writeAccounts(accounts: Accounts) {
+  localStorage.setItem(accountsKey, JSON.stringify(accounts));
+}
+
+function getLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getDaysBetween(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T00:00:00`);
+  const end = new Date(`${endDate}T00:00:00`);
+  return Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function addDays(dateKey: string, days: number) {
+  const date = new Date(`${dateKey}T00:00:00`);
+  date.setDate(date.getDate() + days);
+  return getLocalDateKey(date);
+}
+
+function getDailyCheckedProgress(progress: PlayerProgress): PlayerProgress {
+  if (!progress.lastDailyLessonDate) {
+    return {
+      ...progress,
+      streakFreezes: progress.streakFreezes ?? defaultProgress.streakFreezes,
+      lastDailyLessonDate: null,
+    };
+  }
+
+  const today = getLocalDateKey();
+  const missedDays = getDaysBetween(progress.lastDailyLessonDate, today) - 1;
+
+  if (missedDays <= 0) {
+    return {
+      ...progress,
+      streakFreezes: progress.streakFreezes ?? defaultProgress.streakFreezes,
+    };
+  }
+
+  const freezes = progress.streakFreezes ?? defaultProgress.streakFreezes;
+  const usedFreezes = Math.min(freezes, missedDays);
+  const missedAfterFreeze = missedDays - usedFreezes;
+
+  return {
+    ...progress,
+    streak: missedAfterFreeze > 0 ? 0 : progress.streak,
+    streakFreezes: freezes - usedFreezes,
+    lastDailyLessonDate: missedAfterFreeze > 0 ? null : addDays(progress.lastDailyLessonDate, usedFreezes),
+  };
+}
+
+function readStoredProgress() {
+  const accounts = readAccounts();
+  const savedPlayer = localStorage.getItem('language-quest-player') || '';
+  const progress = savedPlayer && accounts[savedPlayer] ? accounts[savedPlayer].progress : readJson(guestProgressKey, defaultProgress);
+  return getDailyCheckedProgress(progress);
+}
+
+function getRefilledHeartState(progress: PlayerProgress, now = Date.now()) {
+  let hearts = Math.min(progress.hearts, maxHearts);
+  const refillAt = progress.heartRefillAt;
+
+  if (hearts >= maxHearts) {
+    return { hearts: maxHearts, heartRefillAt: null };
+  }
+
+  if (!refillAt) {
+    return { hearts, heartRefillAt: now + heartRefillMs };
+  }
+
+  if (now < refillAt) {
+    return { hearts, heartRefillAt: refillAt };
+  }
+
+  const restoredHearts = Math.floor((now - refillAt) / heartRefillMs) + 1;
+  hearts = Math.min(maxHearts, hearts + restoredHearts);
+
+  return {
+    hearts,
+    heartRefillAt: hearts >= maxHearts ? null : refillAt + restoredHearts * heartRefillMs,
+  };
+}
+
+function formatRefillTime(refillAt: number | null) {
+  if (!refillAt) return '';
+  const remainingSeconds = Math.max(0, Math.ceil((refillAt - Date.now()) / 1000));
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = remainingSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function formatTimer(seconds: number) {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+}
+
+function shuffleOptions(options: string[]) {
+  const shuffled = [...options];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+  }
+
+  return shuffled;
+}
+
+const kazakhQuests: Omit<Quest, 'language'>[] = [
+  {
+    prompt: 'What does "travel" mean?',
+    answer: 'sayahat',
+    options: ['sayahat', 'qala', 'kitap', 'dost'],
+    hint: 'Moving from one place to another.',
+    world: 'Desert Gate',
+  },
+  {
+    prompt: 'Choose the English word for "qalam".',
+    answer: 'pen',
+    options: ['river', 'pen', 'apple', 'house'],
+    hint: 'You write with it.',
+    world: 'Ink Market',
+  },
+  {
+    prompt: 'Complete: I ___ a new word every day.',
+    answer: 'learn',
+    options: ['learn', 'sleep', 'throw', 'paint'],
+    hint: 'This is what language heroes do.',
+    world: 'Verb Bridge',
+  },
+  {
+    prompt: 'What does "friend" mean?',
+    answer: 'dos',
+    options: ['aspan', 'dos', 'su', 'kun'],
+    hint: 'A person you trust and like.',
+    world: 'Friend Forest',
+  },
+  {
+    prompt: 'Choose the opposite of "fast".',
+    answer: 'slow',
+    options: ['bright', 'slow', 'young', 'soft'],
+    hint: 'Not quick.',
+    world: 'River Turn',
+  },
+  {
+    prompt: 'Translate "I am ready".',
+    answer: 'Men daiynmyn',
+    options: ['Men daiynmyn', 'Sen barasyn', 'Biz oqushymyz', 'Ol uide'],
+    hint: 'It means prepared now.',
+    world: 'Final Camp',
+  },
+  {
+    prompt: 'What does "water" mean?',
+    answer: 'su',
+    options: ['nan', 'su', 'tau', 'ai'],
+    hint: 'You drink it.',
+    world: 'Blue Well',
+  },
+  {
+    prompt: 'Choose the English word for "mektep".',
+    answer: 'school',
+    options: ['school', 'garden', 'window', 'market'],
+    hint: 'A place where students learn.',
+    world: 'School Yard',
+  },
+  {
+    prompt: 'Complete: She ___ English on Monday.',
+    answer: 'studies',
+    options: ['studies', 'study', 'studying', 'studied'],
+    hint: 'Use the present simple form for she.',
+    world: 'Grammar Hill',
+  },
+  {
+    prompt: 'What does "book" mean?',
+    answer: 'kitap',
+    options: ['qalam', 'kitap', 'esik', 'alma'],
+    hint: 'You read it.',
+    world: 'Library Steps',
+  },
+  {
+    prompt: 'Choose the opposite of "big".',
+    answer: 'small',
+    options: ['small', 'warm', 'near', 'full'],
+    hint: 'Tiny is another clue.',
+    world: 'Tiny Cave',
+  },
+  {
+    prompt: 'Translate "Good morning".',
+    answer: 'Qaiyrly tan',
+    options: ['Qaiyrly tan', 'Qaiyrly tun', 'Sau bol', 'Keshiriniz'],
+    hint: 'A greeting at the start of the day.',
+    world: 'Sunrise Road',
+  },
+  {
+    prompt: 'What does "city" mean?',
+    answer: 'qala',
+    options: ['dala', 'qala', 'orman', 'kol'],
+    hint: 'A large place with many streets and buildings.',
+    world: 'City Gate',
+  },
+  {
+    prompt: 'Choose the English word for "aspan".',
+    answer: 'sky',
+    options: ['sky', 'stone', 'song', 'table'],
+    hint: 'Look up.',
+    world: 'Cloud Pass',
+  },
+  {
+    prompt: 'Complete: We ___ three new phrases.',
+    answer: 'know',
+    options: ['knows', 'know', 'known', 'knowing'],
+    hint: 'Use the present simple form for we.',
+    world: 'Phrase Camp',
+  },
+  {
+    prompt: 'What does "apple" mean?',
+    answer: 'alma',
+    options: ['alma', 'atai', 'bala', 'nan'],
+    hint: 'A fruit that can be red or green.',
+    world: 'Orchard Lane',
+  },
+  {
+    prompt: 'Choose the opposite of "cold".',
+    answer: 'hot',
+    options: ['early', 'hot', 'quiet', 'open'],
+    hint: 'Tea can be this.',
+    world: 'Tea House',
+  },
+  {
+    prompt: 'Translate "Thank you".',
+    answer: 'Raqmet',
+    options: ['Raqmet', 'Salem', 'Iya', 'Joq'],
+    hint: 'You say it after someone helps you.',
+    world: 'Kindness Square',
+  },
+  {
+    prompt: 'What does "family" mean?',
+    answer: 'otbasy',
+    options: ['otbasy', 'sagat', 'jol', 'koz'],
+    hint: 'Parents, children, and relatives.',
+    world: 'Home Lantern',
+  },
+  {
+    prompt: 'Choose the English word for "ustaz".',
+    answer: 'teacher',
+    options: ['teacher', 'doctor', 'driver', 'singer'],
+    hint: 'This person helps students learn.',
+    world: 'Lesson Hall',
+  },
+  {
+    prompt: 'Complete: They ___ football after school.',
+    answer: 'play',
+    options: ['plays', 'play', 'played', 'playing'],
+    hint: 'Use the present simple form for they.',
+    world: 'Field Path',
+  },
+  {
+    prompt: 'What does "bread" mean?',
+    answer: 'nan',
+    options: ['sut', 'nan', 'bal', 'et'],
+    hint: 'A common food served with meals.',
+    world: 'Bakery Corner',
+  },
+  {
+    prompt: 'Choose the opposite of "open".',
+    answer: 'closed',
+    options: ['closed', 'clean', 'early', 'kind'],
+    hint: 'A door can be this.',
+    world: 'Door Puzzle',
+  },
+  {
+    prompt: 'Translate "See you".',
+    answer: 'Kezdeskenshe',
+    options: ['Kezdeskenshe', 'Kosh keldiniz', 'Qaiyrly kun', 'Magan unaidy'],
+    hint: 'A casual goodbye.',
+    world: 'Farewell Bridge',
+  },
+  {
+    prompt: 'What does "road" mean?',
+    answer: 'jol',
+    options: ['jol', 'ui', 'qol', 'gul'],
+    hint: 'Cars and people travel on it.',
+    world: 'Stone Road',
+  },
+  {
+    prompt: 'Choose the English word for "terese".',
+    answer: 'window',
+    options: ['window', 'chair', 'clock', 'bag'],
+    hint: 'You look outside through it.',
+    world: 'Glass Tower',
+  },
+  {
+    prompt: 'Complete: He ___ to music every night.',
+    answer: 'listens',
+    options: ['listen', 'listens', 'listening', 'listened'],
+    hint: 'Use the present simple form for he.',
+    world: 'Music Cave',
+  },
+  {
+    prompt: 'What does "flower" mean?',
+    answer: 'gul',
+    options: ['gul', 'tas', 'qus', 'qyz'],
+    hint: 'It grows in a garden.',
+    world: 'Garden Ring',
+  },
+  {
+    prompt: 'Choose the opposite of "happy".',
+    answer: 'sad',
+    options: ['sad', 'long', 'near', 'strong'],
+    hint: 'Not joyful.',
+    world: 'Feeling Fork',
+  },
+  {
+    prompt: 'Translate "I like it".',
+    answer: 'Magan unaidy',
+    options: ['Magan unaidy', 'Men biledim', 'Ol zhaksy', 'Biz kuttik'],
+    hint: 'A phrase for something you enjoy.',
+    world: 'Choice Plaza',
+  },
+  {
+    prompt: 'What does "time" mean?',
+    answer: 'uaqyt',
+    options: ['uaqyt', 'bala', 'aua', 'qalam'],
+    hint: 'Clocks measure it.',
+    world: 'Clock Garden',
+  },
+  {
+    prompt: 'Choose the English word for "aua".',
+    answer: 'air',
+    options: ['air', 'fire', 'milk', 'sound'],
+    hint: 'You breathe it.',
+    world: 'Wind Steps',
+  },
+  {
+    prompt: 'Complete: I can ___ this sentence.',
+    answer: 'read',
+    options: ['read', 'reads', 'reading', 'reader'],
+    hint: 'Use the base verb after can.',
+    world: 'Sentence Gate',
+  },
+  {
+    prompt: 'What does "milk" mean?',
+    answer: 'sut',
+    options: ['shai', 'sut', 'mai', 'tuz'],
+    hint: 'A white drink.',
+    world: 'White Spring',
+  },
+  {
+    prompt: 'Choose the opposite of "near".',
+    answer: 'far',
+    options: ['far', 'new', 'thin', 'right'],
+    hint: 'A long distance away.',
+    world: 'Far Ridge',
+  },
+  {
+    prompt: 'Translate "Welcome".',
+    answer: 'Kosh keldiniz',
+    options: ['Kosh keldiniz', 'Keshiriniz', 'Men daiynmyn', 'Qaiyrly tan'],
+    hint: 'You say it when someone arrives.',
+    world: 'Welcome Arch',
+  },
+];
+
+const extraLanguageQuests: Quest[] = [
+  // Spanish - expanded
+  { language: 'Spanish', prompt: 'What does "hello" mean in Spanish?', answer: 'hola', options: ['hola', 'gracias', 'noche', 'libro'], hint: 'A greeting at the start of a conversation.', world: 'Spanish Plaza' },
+  { language: 'Spanish', prompt: 'Choose the English word for "agua".', answer: 'water', options: ['water', 'bread', 'street', 'friend'], hint: 'You drink it.', world: 'Fountain Street' },
+  { language: 'Spanish', prompt: 'Translate "thank you" into Spanish.', answer: 'gracias', options: ['gracias', 'perro', 'manana', 'rojo'], hint: 'You say it after someone helps you.', world: 'Market Smile' },
+  { language: 'Spanish', prompt: 'What does "casa" mean?', answer: 'house', options: ['house', 'music', 'teacher', 'flower'], hint: 'A place where someone lives.', world: 'Tile House' },
+  { language: 'Spanish', prompt: 'Choose the Spanish word for "book".', answer: 'libro', options: ['mesa', 'libro', 'verde', 'leche'], hint: 'You read it.', world: 'Book Stall' },
+  { language: 'Spanish', prompt: 'What does "buenos dias" mean?', answer: 'good morning', options: ['good morning', 'good night', 'see you', 'excuse me'], hint: 'A greeting early in the day.', world: 'Morning Square' },
+  { language: 'Spanish', prompt: 'Choose the Spanish word for "friend".', answer: 'amigo', options: ['amigo', 'hermano', 'vecino', 'profesor'], hint: 'A person you trust and like.', world: 'Friend Valley' },
+  { language: 'Spanish', prompt: 'What does "no" mean?', answer: 'no', options: ['no', 'si', 'tal vez', 'que'], hint: 'The opposite of yes.', world: 'Decision Point' },
+  { language: 'Spanish', prompt: 'Translate "I am ready".', answer: 'Estoy listo', options: ['Estoy listo', 'Tengo hambre', 'Me duele', 'Estoy cansado'], hint: 'Prepared and prepared to go.', world: 'Ready Gate' },
+  { language: 'Spanish', prompt: 'What does "rojo" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A color like a rose.', world: 'Color Garden' },
+  { language: 'Spanish', prompt: 'Choose the Spanish word for "dog".', answer: 'perro', options: ['perro', 'gato', 'pajaro', 'pez'], hint: 'A common household pet.', world: 'Friendly Meadow' },
+  { language: 'Spanish', prompt: 'What does "noche" mean?', answer: 'night', options: ['night', 'morning', 'afternoon', 'evening'], hint: 'The time when it is dark.', world: 'Night Sky' },
+  { language: 'Spanish', prompt: 'Translate "good night".', answer: 'buenas noches', options: ['buenas noches', 'buenos dias', 'buenas tardes', 'adios'], hint: 'A polite farewell before sleep.', world: 'Moonlit Tower' },
+  { language: 'Spanish', prompt: 'What does "comida" mean?', answer: 'food', options: ['food', 'water', 'air', 'sun'], hint: 'What you eat.', world: 'Kitchen Garden' },
+  { language: 'Spanish', prompt: 'Choose the Spanish word for "school".', answer: 'escuela', options: ['escuela', 'hospital', 'mercado', 'iglesia'], hint: 'A place where students learn.', world: 'Learning Haven' },
+  { language: 'Spanish', prompt: 'What does "grande" mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not small.', world: 'Giant Hill' },
+  { language: 'Spanish', prompt: 'Translate "I love it".', answer: 'Me encanta', options: ['Me encanta', 'No me gusta', 'Me duele', 'Tengo miedo'], hint: 'You really like something.', world: 'Heart Valley' },
+  { language: 'Spanish', prompt: 'What does "tiempo" mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'What clocks measure.', world: 'Clock Tower' },
+  { language: 'Spanish', prompt: 'Choose the Spanish word for "apple".', answer: 'manzana', options: ['manzana', 'platano', 'naranja', 'limon'], hint: 'A red or green fruit.', world: 'Orchard Path' },
+  { language: 'Spanish', prompt: 'What does "feliz" mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Joy Castle' },
+  { language: 'Spanish', prompt: 'Translate "excuse me".', answer: 'disculpe', options: ['disculpe', 'por favor', 'de nada', 'lo siento'], hint: 'A polite way to get attention.', world: 'Polite Plaza' },
+
+  // French - expanded
+  { language: 'French', prompt: 'What does "hello" mean in French?', answer: 'bonjour', options: ['bonjour', 'merci', 'pomme', 'rue'], hint: 'A polite greeting.', world: 'French Cafe' },
+  { language: 'French', prompt: 'Choose the English word for "eau".', answer: 'water', options: ['water', 'school', 'air', 'road'], hint: 'You drink it.', world: 'River Cafe' },
+  { language: 'French', prompt: 'Translate "thank you" into French.', answer: 'merci', options: ['merci', 'chien', 'bleu', 'porte'], hint: 'A polite word after help.', world: 'Kind Cafe' },
+  { language: 'French', prompt: 'What does "livre" mean?', answer: 'book', options: ['book', 'city', 'milk', 'teacher'], hint: 'You read it.', world: 'Paper Bridge' },
+  { language: 'French', prompt: 'Choose the French word for "friend".', answer: 'ami', options: ['ami', 'pain', 'soleil', 'fenetre'], hint: 'Someone you trust and like.', world: 'Friend Cafe' },
+  { language: 'French', prompt: 'What does "bonne nuit" mean?', answer: 'good night', options: ['good night', 'good morning', 'welcome', 'I am ready'], hint: 'A phrase before sleep.', world: 'Moon Balcony' },
+  { language: 'French', prompt: 'What does "non" mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'never'], hint: 'The opposite of oui.', world: 'Decision Grove' },
+  { language: 'French', prompt: 'Translate "I am ready".', answer: 'Je suis pret', options: ['Je suis pret', 'J\'ai faim', 'J\'ai froid', 'Je suis fatigue'], hint: 'Prepared and prepared.', world: 'Ready Hall' },
+  { language: 'French', prompt: 'What does "rouge" mean?', answer: 'red', options: ['red', 'blue', 'green', 'white'], hint: 'The color of wine or rose.', world: 'Red Square' },
+  { language: 'French', prompt: 'Choose the French word for "dog".', answer: 'chien', options: ['chien', 'chat', 'oiseau', 'poisson'], hint: 'A loyal pet.', world: 'Pet Corner' },
+  { language: 'French', prompt: 'What does "nuit" mean?', answer: 'night', options: ['night', 'day', 'morning', 'evening'], hint: 'When it is dark.', world: 'Night Path' },
+  { language: 'French', prompt: 'Translate "good morning".', answer: 'bonjour', options: ['bonjour', 'bonsoir', 'bonne nuit', 'a bientot'], hint: 'A daytime greeting.', world: 'Morning Light' },
+  { language: 'French', prompt: 'What does "nourriture" mean?', answer: 'food', options: ['food', 'water', 'air', 'light'], hint: 'What you eat to survive.', world: 'Feast Hall' },
+  { language: 'French', prompt: 'Choose the French word for "school".', answer: 'ecole', options: ['ecole', 'hopital', 'marche', 'eglise'], hint: 'A place for learning.', world: 'School Gate' },
+  { language: 'French', prompt: 'What does "grand" mean?', answer: 'big', options: ['big', 'small', 'medium', 'large'], hint: 'Not petit.', world: 'Big Plaza' },
+  { language: 'French', prompt: 'Translate "I love it".', answer: 'J\'aime beaucoup', options: ['J\'aime beaucoup', 'Je n\'aime pas', 'C\'est mal', 'C\'est ennuyeux'], hint: 'You adore something.', world: 'Love Temple' },
+  { language: 'French', prompt: 'What does "temps" mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Clock' },
+  { language: 'French', prompt: 'Choose the French word for "apple".', answer: 'pomme', options: ['pomme', 'banane', 'orange', 'citron'], hint: 'A red or green fruit.', world: 'Apple Grove' },
+  { language: 'French', prompt: 'What does "heureux" mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'scared'], hint: 'Full of joy.', world: 'Happy Village' },
+  { language: 'French', prompt: 'Translate "excuse me".', answer: 'excusez-moi', options: ['excusez-moi', 's\'il vous plait', 'de rien', 'je suis desole'], hint: 'A polite interruption.', world: 'Polite Lane' },
+
+  // German - expanded
+  { language: 'German', prompt: 'What does "hello" mean in German?', answer: 'hallo', options: ['hallo', 'danke', 'brot', 'stadt'], hint: 'A greeting.', world: 'German Gate' },
+  { language: 'German', prompt: 'Choose the English word for "wasser".', answer: 'water', options: ['water', 'bread', 'time', 'flower'], hint: 'You drink it.', world: 'Water Mill' },
+  { language: 'German', prompt: 'Translate "thank you" into German.', answer: 'danke', options: ['danke', 'schule', 'haus', 'apfel'], hint: 'A polite word after help.', world: 'Danke Hall' },
+  { language: 'German', prompt: 'What does "schule" mean?', answer: 'school', options: ['school', 'street', 'window', 'milk'], hint: 'A place where students learn.', world: 'Classroom Road' },
+  { language: 'German', prompt: 'Choose the German word for "apple".', answer: 'apfel', options: ['apfel', 'freund', 'buch', 'luft'], hint: 'A fruit that can be red or green.', world: 'Apple Hill' },
+  { language: 'German', prompt: 'What does "guten morgen" mean?', answer: 'good morning', options: ['good morning', 'good night', 'see you', 'welcome'], hint: 'A greeting at the start of the day.', world: 'Morning Gate' },
+  { language: 'German', prompt: 'What does "nein" mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'always'], hint: 'The opposite of ja.', world: 'No Bridge' },
+  { language: 'German', prompt: 'Translate "I am ready".', answer: 'Ich bin bereit', options: ['Ich bin bereit', 'Ich habe Hunger', 'Ich bin kalt', 'Ich bin müde'], hint: 'Prepared and ready.', world: 'Ready Tower' },
+  { language: 'German', prompt: 'What does "rot" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'The color of fire.', world: 'Red Forest' },
+  { language: 'German', prompt: 'Choose the German word for "friend".', answer: 'freund', options: ['freund', 'bruder', 'vater', 'lehrer'], hint: 'Someone you like.', world: 'Friend Hall' },
+  { language: 'German', prompt: 'What does "nacht" mean?', answer: 'night', options: ['night', 'day', 'morning', 'evening'], hint: 'When the sun sets.', world: 'Night Gate' },
+  { language: 'German', prompt: 'Translate "good night".', answer: 'gute nacht', options: ['gute nacht', 'guten morgen', 'guten tag', 'auf wiedersehen'], hint: 'Before sleep.', world: 'Sleep Tower' },
+  { language: 'German', prompt: 'What does "essen" mean?', answer: 'food', options: ['food', 'water', 'air', 'sun'], hint: 'What you eat.', world: 'Food Market' },
+  { language: 'German', prompt: 'Choose the German word for "dog".', answer: 'hund', options: ['hund', 'katze', 'vogel', 'fisch'], hint: 'Man\'s best friend.', world: 'Pet Land' },
+  { language: 'German', prompt: 'What does "gross" mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not klein.', world: 'Big Mountain' },
+  { language: 'German', prompt: 'Translate "I love it".', answer: 'Ich liebe es', options: ['Ich liebe es', 'Ich mag es nicht', 'Es tut mir weh', 'Ich habe Angst'], hint: 'You adore something.', world: 'Love Valley' },
+  { language: 'German', prompt: 'What does "zeit" mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Hall' },
+  { language: 'German', prompt: 'Choose the German word for "house".', answer: 'haus', options: ['haus', 'strasse', 'schule', 'baum'], hint: 'A place where you live.', world: 'Home Sweet' },
+  { language: 'German', prompt: 'What does "glucklich" mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Happy Peak' },
+  { language: 'German', prompt: 'Translate "excuse me".', answer: 'entschuldigung', options: ['entschuldigung', 'bitte', 'gerne', 'tut mir leid'], hint: 'A polite interruption.', world: 'Polite Way' },
+
+  // English - expanded
+  { language: 'English', prompt: 'Choose the correct sentence.', answer: 'She likes music.', options: ['She likes music.', 'She like music.', 'She liking music.', 'She liked music now.'], hint: 'Use present simple with she.', world: 'English Studio' },
+  { language: 'English', prompt: 'Choose the opposite of "early".', answer: 'late', options: ['late', 'clean', 'quiet', 'small'], hint: 'Not on time at the beginning.', world: 'Clock Tower' },
+  { language: 'English', prompt: 'Complete: I am ___ a book.', answer: 'reading', options: ['read', 'reads', 'reading', 'reader'], hint: 'Use the -ing form after am.', world: 'Reading Room' },
+  { language: 'English', prompt: 'Choose the synonym of "quick".', answer: 'fast', options: ['fast', 'cold', 'sad', 'closed'], hint: 'It means moving with speed.', world: 'Speed Lane' },
+  { language: 'English', prompt: 'What does "understand" mean?', answer: 'comprehend', options: ['comprehend', 'ignore', 'forget', 'escape'], hint: 'To grasp the meaning.', world: 'Knowledge Peak' },
+  { language: 'English', prompt: 'Choose the opposite of "inside".', answer: 'outside', options: ['outside', 'upside', 'beside', 'inside'], hint: 'Not within.', world: 'Outside Gate' },
+  { language: 'English', prompt: 'Complete: He ___ to the gym every day.', answer: 'goes', options: ['go', 'goes', 'went', 'going'], hint: 'Use present simple with he.', world: 'Gym Path' },
+  { language: 'English', prompt: 'What is the past tense of "eat"?', answer: 'ate', options: ['ate', 'eating', 'eats', 'eaten'], hint: 'What you did yesterday.', world: 'Past Valley' },
+  { language: 'English', prompt: 'Choose the correct article: ___ cat is sleeping.', answer: 'The', options: ['The', 'A', 'An', 'Some'], hint: 'Use the definite article.', world: 'Grammar Gate' },
+  { language: 'English', prompt: 'What is a synonym of "beautiful"?', answer: 'lovely', options: ['lovely', 'ugly', 'plain', 'dull'], hint: 'Another word for pretty.', world: 'Beauty Garden' },
+  { language: 'English', prompt: 'Choose the correct form: I wish I ___ you yesterday.', answer: 'had seen', options: ['had seen', 'have seen', 'saw', 'see'], hint: 'Past perfect form.', world: 'Memory Lane' },
+  { language: 'English', prompt: 'What does "curious" mean?', answer: 'inquisitive', options: ['inquisitive', 'shy', 'angry', 'tired'], hint: 'Wanting to know more.', world: 'Wonder Peak' },
+  { language: 'English', prompt: 'Complete: If I ___ earlier, I would have caught the bus.', answer: 'had woken up', options: ['woke up', 'would wake up', 'had woken up', 'wake up'], hint: 'Conditional past.', world: 'If Valley' },
+  { language: 'English', prompt: 'What is the opposite of "gain"?', answer: 'lose', options: ['lose', 'find', 'keep', 'take'], hint: 'To misplace or forfeit.', world: 'Loss Point' },
+  { language: 'English', prompt: 'Choose the correct sentence: Neither of the students ___ their homework.', answer: 'did', options: ['did', 'have', 'has', 'were'], hint: 'With neither use singular verb.', world: 'Grammar Hall' },
+  { language: 'English', prompt: 'What does "persistent" mean?', answer: 'continuous', options: ['continuous', 'lazy', 'careless', 'quick'], hint: 'Continuing despite difficulty.', world: 'Strong Tower' },
+  { language: 'English', prompt: 'Choose the synonym of "terrified".', answer: 'scared', options: ['scared', 'happy', 'tired', 'bored'], hint: 'Full of fear.', world: 'Fear Forest' },
+  { language: 'English', prompt: 'Complete: You should ___ more vegetables.', answer: 'eat', options: ['eating', 'ate', 'eat', 'eats'], hint: 'Use base form after should.', world: 'Health Trail' },
+  { language: 'English', prompt: 'What is the past participle of "write"?', answer: 'written', options: ['written', 'wrote', 'writing', 'writes'], hint: 'Used in perfect tenses.', world: 'Writer Way' },
+  { language: 'English', prompt: 'Choose the opposite of "success".', answer: 'failure', options: ['failure', 'trial', 'effort', 'attempt'], hint: 'Lack of success.', world: 'Result Peak' },
+
+  // Portuguese - NEW
+  { language: 'Portuguese', prompt: 'What does "olá" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'yes'], hint: 'A greeting.', world: 'Portuguese Plaza' },
+  { language: 'Portuguese', prompt: 'Choose the Portuguese word for "water".', answer: 'agua', options: ['agua', 'pao', 'livro', 'amigo'], hint: 'You drink it.', world: 'Water Spring' },
+  { language: 'Portuguese', prompt: 'Translate "thank you" into Portuguese.', answer: 'obrigado', options: ['obrigado', 'desculpe', 'por favor', 'de nada'], hint: 'A polite word after help.', world: 'Gratitude Hall' },
+  { language: 'Portuguese', prompt: 'What does "não" mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'always'], hint: 'The opposite of sim.', world: 'No Gate' },
+  { language: 'Portuguese', prompt: 'Choose the Portuguese word for "friend".', answer: 'amigo', options: ['amigo', 'inimigo', 'primo', 'vizinho'], hint: 'Someone you trust.', world: 'Friend Path' },
+  { language: 'Portuguese', prompt: 'What does "casa" mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where you live.', world: 'Home Valley' },
+  { language: 'Portuguese', prompt: 'Translate "good morning".', answer: 'bom dia', options: ['bom dia', 'boa noite', 'boa tarde', 'adeus'], hint: 'A daytime greeting.', world: 'Morning Light' },
+  { language: 'Portuguese', prompt: 'What does "comida" mean?', answer: 'food', options: ['food', 'water', 'air', 'fire'], hint: 'What you eat.', world: 'Kitchen Garden' },
+  { language: 'Portuguese', prompt: 'Choose the Portuguese word for "red".', answer: 'vermelho', options: ['vermelho', 'azul', 'verde', 'amarelo'], hint: 'The color of fire.', world: 'Red Forest' },
+  { language: 'Portuguese', prompt: 'What does "livro" mean?', answer: 'book', options: ['book', 'table', 'chair', 'door'], hint: 'You read it.', world: 'Library Steps' },
+  { language: 'Portuguese', prompt: 'Translate "I am ready".', answer: 'Estou pronto', options: ['Estou pronto', 'Tenho fome', 'Estou cansado', 'Tenho frio'], hint: 'Prepared and set.', world: 'Ready Gate' },
+  { language: 'Portuguese', prompt: 'What does "escola" mean?', answer: 'school', options: ['school', 'hospital', 'market', 'church'], hint: 'A place for learning.', world: 'School Yard' },
+  { language: 'Portuguese', prompt: 'Choose the Portuguese word for "dog".', answer: 'cao', options: ['cao', 'gato', 'passaro', 'peixe'], hint: 'A common pet.', world: 'Pet Corner' },
+  { language: 'Portuguese', prompt: 'What does "grande" mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not small.', world: 'Big Mountain' },
+  { language: 'Portuguese', prompt: 'Translate "good night".', answer: 'boa noite', options: ['boa noite', 'bom dia', 'boa tarde', 'até logo'], hint: 'Before sleep.', world: 'Night Rest' },
+  { language: 'Portuguese', prompt: 'What does "tempo" mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Clock' },
+  { language: 'Portuguese', prompt: 'Choose the Portuguese word for "apple".', answer: 'maca', options: ['maca', 'banana', 'laranja', 'limao'], hint: 'A red or green fruit.', world: 'Orchard Lane' },
+  { language: 'Portuguese', prompt: 'What does "feliz" mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Joy Castle' },
+  { language: 'Portuguese', prompt: 'Translate "I love it".', answer: 'Eu amo', options: ['Eu amo', 'Eu odeio', 'Eu gosto', 'Eu tenho medo'], hint: 'You adore something.', world: 'Love Temple' },
+  { language: 'Portuguese', prompt: 'Translate "excuse me".', answer: 'desculpe-me', options: ['desculpe-me', 'por favor', 'de nada', 'tudo bem'], hint: 'A polite interruption.', world: 'Polite Plaza' },
+
+  // Italian - NEW
+  { language: 'Italian', prompt: 'What does "ciao" mean?', answer: 'hello/goodbye', options: ['hello/goodbye', 'thank you', 'water', 'friend'], hint: 'An informal greeting.', world: 'Italian Piazza' },
+  { language: 'Italian', prompt: 'Choose the Italian word for "water".', answer: 'acqua', options: ['acqua', 'pane', 'libro', 'amico'], hint: 'You drink it.', world: 'Fountain Street' },
+  { language: 'Italian', prompt: 'Translate "thank you" into Italian.', answer: 'grazie', options: ['grazie', 'scusa', 'per favore', 'prego'], hint: 'A polite word after help.', world: 'Gratitude Plaza' },
+  { language: 'Italian', prompt: 'What does "no" mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'never'], hint: 'The opposite of si.', world: 'No Tower' },
+  { language: 'Italian', prompt: 'Choose the Italian word for "friend".', answer: 'amico', options: ['amico', 'nemico', 'cugino', 'vicino'], hint: 'Someone you like.', world: 'Friend Valley' },
+  { language: 'Italian', prompt: 'What does "casa" mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where you live.', world: 'Home Sweet' },
+  { language: 'Italian', prompt: 'Translate "good morning".', answer: 'buongiorno', options: ['buongiorno', 'buonasera', 'buonanotte', 'arrivederci'], hint: 'A daytime greeting.', world: 'Morning Light' },
+  { language: 'Italian', prompt: 'What does "cibo" mean?', answer: 'food', options: ['food', 'water', 'air', 'fire'], hint: 'What you eat.', world: 'Kitchen Garden' },
+  { language: 'Italian', prompt: 'Choose the Italian word for "red".', answer: 'rosso', options: ['rosso', 'blu', 'verde', 'giallo'], hint: 'The color of fire.', world: 'Red Square' },
+  { language: 'Italian', prompt: 'What does "libro" mean?', answer: 'book', options: ['book', 'table', 'chair', 'door'], hint: 'You read it.', world: 'Library Steps' },
+  { language: 'Italian', prompt: 'Translate "I am ready".', answer: 'Sono pronto', options: ['Sono pronto', 'Ho fame', 'Sono stanco', 'Ho freddo'], hint: 'Prepared and set.', world: 'Ready Gate' },
+  { language: 'Italian', prompt: 'What does "scuola" mean?', answer: 'school', options: ['school', 'hospital', 'market', 'church'], hint: 'A place for learning.', world: 'School Yard' },
+  { language: 'Italian', prompt: 'Choose the Italian word for "dog".', answer: 'cane', options: ['cane', 'gatto', 'uccello', 'pesce'], hint: 'A common pet.', world: 'Pet Corner' },
+  { language: 'Italian', prompt: 'What does "grande" mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not small.', world: 'Big Mountain' },
+  { language: 'Italian', prompt: 'Translate "good night".', answer: 'buonanotte', options: ['buonanotte', 'buongiorno', 'buonasera', 'a presto'], hint: 'Before sleep.', world: 'Night Rest' },
+  { language: 'Italian', prompt: 'What does "tempo" mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Clock' },
+  { language: 'Italian', prompt: 'Choose the Italian word for "apple".', answer: 'mela', options: ['mela', 'banana', 'arancia', 'limone'], hint: 'A red or green fruit.', world: 'Orchard Lane' },
+  { language: 'Italian', prompt: 'What does "felice" mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Joy Castle' },
+  { language: 'Italian', prompt: 'Translate "I love it".', answer: 'Amo molto', options: ['Amo molto', 'Odio', 'Mi piace', 'Ho paura'], hint: 'You adore something.', world: 'Love Temple' },
+  { language: 'Italian', prompt: 'Translate "excuse me".', answer: 'scusa', options: ['scusa', 'per favore', 'prego', 'va bene'], hint: 'A polite interruption.', world: 'Polite Plaza' },
+
+  // Russian - NEW
+  { language: 'Russian', prompt: 'What does "привет" (privet) mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'yes'], hint: 'A casual greeting.', world: 'Russian Square' },
+  { language: 'Russian', prompt: 'Choose the Russian word for "water".', answer: 'вода (voda)', options: ['вода (voda)', 'хлеб (khleb)', 'книга (kniga)', 'друг (drug)'], hint: 'You drink it.', world: 'Water Well' },
+  { language: 'Russian', prompt: 'Translate "thank you" into Russian.', answer: 'спасибо (spasibo)', options: ['спасибо (spasibo)', 'извините (izvinite)', 'пожалуйста (pozhaluysta)', 'да (da)'], hint: 'A polite word after help.', world: 'Gratitude Hall' },
+  { language: 'Russian', prompt: 'What does "нет" (nyet) mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'always'], hint: 'The opposite of да.', world: 'No Gate' },
+  { language: 'Russian', prompt: 'Choose the Russian word for "friend".', answer: 'друг (drug)', options: ['друг (drug)', 'враг (vrag)', 'брат (brat)', 'сосед (sosed)'], hint: 'Someone you trust.', world: 'Friend Path' },
+  { language: 'Russian', prompt: 'What does "дом" (dom) mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where you live.', world: 'Home Valley' },
+  { language: 'Russian', prompt: 'Translate "good morning".', answer: 'доброе утро (dobroye utro)', options: ['доброе утро (dobroye utro)', 'добрый вечер (dobryy vecher)', 'спокойной ночи (spokoynoy nochi)', 'до свидания (do svidaniya)'], hint: 'A daytime greeting.', world: 'Morning Light' },
+  { language: 'Russian', prompt: 'What does "еда" (yeda) mean?', answer: 'food', options: ['food', 'water', 'air', 'fire'], hint: 'What you eat.', world: 'Kitchen Garden' },
+  { language: 'Russian', prompt: 'Choose the Russian word for "red".', answer: 'красный (krasnyy)', options: ['красный (krasnyy)', 'синий (siniy)', 'зеленый (zelenyy)', 'желтый (zheltyy)'], hint: 'The color of fire.', world: 'Red Forest' },
+  { language: 'Russian', prompt: 'What does "книга" (kniga) mean?', answer: 'book', options: ['book', 'table', 'chair', 'door'], hint: 'You read it.', world: 'Library Steps' },
+  { language: 'Russian', prompt: 'Translate "I am ready".', answer: 'Я готов (Ya gotov)', options: ['Я готов (Ya gotov)', 'Я голоден (Ya goloden)', 'Я устал (Ya ustal)', 'Я холодно (Ya kholodno)'], hint: 'Prepared and set.', world: 'Ready Gate' },
+  { language: 'Russian', prompt: 'What does "школа" (shkola) mean?', answer: 'school', options: ['school', 'hospital', 'market', 'church'], hint: 'A place for learning.', world: 'School Yard' },
+  { language: 'Russian', prompt: 'Choose the Russian word for "dog".', answer: 'собака (sobaka)', options: ['собака (sobaka)', 'кошка (koshka)', 'птица (ptitsa)', 'рыба (ryba)'], hint: 'A common pet.', world: 'Pet Corner' },
+  { language: 'Russian', prompt: 'What does "большой" (bolshoy) mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not small.', world: 'Big Mountain' },
+  { language: 'Russian', prompt: 'Translate "good night".', answer: 'спокойной ночи (spokoynoy nochi)', options: ['спокойной ночи (spokoynoy nochi)', 'доброе утро (dobroye utro)', 'добрый вечер (dobryy vecher)', 'до встречи (do vstrechi)'], hint: 'Before sleep.', world: 'Night Rest' },
+  { language: 'Russian', prompt: 'What does "время" (vremya) mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Clock' },
+  { language: 'Russian', prompt: 'Choose the Russian word for "apple".', answer: 'яблоко (yabloko)', options: ['яблоко (yabloko)', 'банан (banan)', 'апельсин (apelsin)', 'лимон (limon)'], hint: 'A red or green fruit.', world: 'Orchard Lane' },
+  { language: 'Russian', prompt: 'What does "счастливый" (schastlivyy) mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Joy Castle' },
+  { language: 'Russian', prompt: 'Translate "I love it".', answer: 'Я люблю это (Ya lyublyu eto)', options: ['Я люблю это (Ya lyublyu eto)', 'Я ненавижу (Ya nenavizhу)', 'Мне нравится (Mne nravitsa)', 'Я боюсь (Ya boyus)'], hint: 'You adore something.', world: 'Love Temple' },
+  { language: 'Russian', prompt: 'Translate "excuse me".', answer: 'извините (izvinite)', options: ['извините (izvinite)', 'пожалуйста (pozhaluysta)', 'пожалуйста (pozhaluysta)', 'все хорошо (vse khorosho)'], hint: 'A polite interruption.', world: 'Polite Plaza' },
+
+  // Japanese - NEW
+  { language: 'Japanese', prompt: 'What does "こんにちは" (konnichiha) mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'yes'], hint: 'A polite greeting.', world: 'Japanese Garden' },
+  { language: 'Japanese', prompt: 'Choose the Japanese word for "water".', answer: '水 (mizu)', options: ['水 (mizu)', 'パン (pan)', '本 (hon)', '友達 (tomodachi)'], hint: 'You drink it.', world: 'Water Temple' },
+  { language: 'Japanese', prompt: 'Translate "thank you" into Japanese.', answer: 'ありがとう (arigatou)', options: ['ありがとう (arigatou)', 'すみません (sumimasen)', 'お願いします (onegaishimasu)', 'はい (hai)'], hint: 'A polite word after help.', world: 'Gratitude Shrine' },
+  { language: 'Japanese', prompt: 'What does "いいえ" (iie) mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'never'], hint: 'The opposite of はい.', world: 'No Tower' },
+  { language: 'Japanese', prompt: 'Choose the Japanese word for "friend".', answer: '友達 (tomodachi)', options: ['友達 (tomodachi)', '敵 (teki)', '兄弟 (kyoudai)', '隣人 (rinjin)'], hint: 'Someone you trust.', world: 'Friend Path' },
+  { language: 'Japanese', prompt: 'What does "家" (ie) mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where you live.', world: 'Home Valley' },
+  { language: 'Japanese', prompt: 'Translate "good morning".', answer: 'おはよう (ohayou)', options: ['おはよう (ohayou)', 'こんばんは (konbanha)', 'おやすみなさい (oyasuminasai)', 'さようなら (sayounara)'], hint: 'A daytime greeting.', world: 'Morning Light' },
+  { language: 'Japanese', prompt: 'What does "食べ物" (tabemono) mean?', answer: 'food', options: ['food', 'water', 'air', 'fire'], hint: 'What you eat.', world: 'Kitchen Garden' },
+  { language: 'Japanese', prompt: 'Choose the Japanese word for "red".', answer: '赤 (aka)', options: ['赤 (aka)', '青 (ao)', '緑 (midori)', '黄色 (kiiro)'], hint: 'The color of fire.', world: 'Red Square' },
+  { language: 'Japanese', prompt: 'What does "本" (hon) mean?', answer: 'book', options: ['book', 'table', 'chair', 'door'], hint: 'You read it.', world: 'Library Steps' },
+  { language: 'Japanese', prompt: 'Translate "I am ready".', answer: 'I\'m ready (Junbi dekita)', options: ['I\'m ready (Junbi dekita)', 'I\'m hungry (Onaka suite iru)', 'I\'m tired (Tsukarete iru)', 'I\'m cold (Samui)'], hint: 'Prepared and set.', world: 'Ready Gate' },
+  { language: 'Japanese', prompt: 'What does "学校" (gakkou) mean?', answer: 'school', options: ['school', 'hospital', 'market', 'church'], hint: 'A place for learning.', world: 'School Yard' },
+  { language: 'Japanese', prompt: 'Choose the Japanese word for "dog".', answer: '犬 (inu)', options: ['犬 (inu)', '猫 (neko)', '鳥 (tori)', '魚 (sakana)'], hint: 'A common pet.', world: 'Pet Corner' },
+  { language: 'Japanese', prompt: 'What does "大きい" (ookii) mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not small.', world: 'Big Mountain' },
+  { language: 'Japanese', prompt: 'Translate "good night".', answer: 'おやすみなさい (oyasuminasai)', options: ['おやすみなさい (oyasuminasai)', 'おはよう (ohayou)', 'こんばんは (konbanha)', 'また明日 (mata ashita)'], hint: 'Before sleep.', world: 'Night Rest' },
+  { language: 'Japanese', prompt: 'What does "時間" (jikan) mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Clock' },
+  { language: 'Japanese', prompt: 'Choose the Japanese word for "apple".', answer: 'リンゴ (ringo)', options: ['リンゴ (ringo)', 'バナナ (banana)', 'オレンジ (orenji)', 'レモン (remon)'], hint: 'A red or green fruit.', world: 'Orchard Lane' },
+  { language: 'Japanese', prompt: 'What does "幸せ" (shiawase) mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Joy Castle' },
+  { language: 'Japanese', prompt: 'Translate "I love it".', answer: '大好き (daisuki)', options: ['大好き (daisuki)', 'キライ (kirai)', '好き (suki)', '怖い (kowai)'], hint: 'You adore something.', world: 'Love Temple' },
+  { language: 'Japanese', prompt: 'Translate "excuse me".', answer: 'すみません (sumimasen)', options: ['すみません (sumimasen)', 'お願いします (onegaishimasu)', 'どうぞ (douzo)', 'いいえ (iie)'], hint: 'A polite interruption.', world: 'Polite Plaza' },
+
+  // Chinese - NEW
+  { language: 'Chinese', prompt: 'What does "你好" (nǐ hǎo) mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'yes'], hint: 'A polite greeting.', world: 'Chinese Plaza' },
+  { language: 'Chinese', prompt: 'Choose the Chinese word for "water".', answer: '水 (shuǐ)', options: ['水 (shuǐ)', '面包 (miànbāo)', '书 (shū)', '朋友 (péngyou)'], hint: 'You drink it.', world: 'Water Dragon' },
+  { language: 'Chinese', prompt: 'Translate "thank you" into Chinese.', answer: '谢谢 (xièxie)', options: ['谢谢 (xièxie)', '对不起 (duìbùqǐ)', '请 (qǐng)', '是 (shì)'], hint: 'A polite word after help.', world: 'Gratitude Hall' },
+  { language: 'Chinese', prompt: 'What does "不" (bù) mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'never'], hint: 'The opposite of 是.', world: 'No Tower' },
+  { language: 'Chinese', prompt: 'Choose the Chinese word for "friend".', answer: '朋友 (péngyou)', options: ['朋友 (péngyou)', '敌人 (díren)', '兄弟 (xiōngdi)', '邻居 (línjū)'], hint: 'Someone you trust.', world: 'Friend Path' },
+  { language: 'Chinese', prompt: 'What does "房子" (fángzi) mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where you live.', world: 'Home Valley' },
+  { language: 'Chinese', prompt: 'Translate "good morning".', answer: '早上好 (zǎoshang hǎo)', options: ['早上好 (zǎoshang hǎo)', '晚上好 (wǎnshang hǎo)', '晚安 (wǎn\'ān)', '再见 (zàijiàn)'], hint: 'A daytime greeting.', world: 'Morning Light' },
+  { language: 'Chinese', prompt: 'What does "食物" (shíwù) mean?', answer: 'food', options: ['food', 'water', 'air', 'fire'], hint: 'What you eat.', world: 'Kitchen Garden' },
+  { language: 'Chinese', prompt: 'Choose the Chinese word for "red".', answer: '红色 (hóngse)', options: ['红色 (hóngse)', '蓝色 (lánsè)', '绿色 (lǜsè)', '黄色 (huángsè)'], hint: 'The color of fire.', world: 'Red Square' },
+  { language: 'Chinese', prompt: 'What does "书" (shū) mean?', answer: 'book', options: ['book', 'table', 'chair', 'door'], hint: 'You read it.', world: 'Library Steps' },
+  { language: 'Chinese', prompt: 'Translate "I am ready".', answer: '我准备好了 (Wǒ zhǔnbèi hǎo le)', options: ['我准备好了 (Wǒ zhǔnbèi hǎo le)', '我饿了 (Wǒ è le)', '我累了 (Wǒ lèi le)', '我冷 (Wǒ lěng)'], hint: 'Prepared and set.', world: 'Ready Gate' },
+  { language: 'Chinese', prompt: 'What does "学校" (xuéxiào) mean?', answer: 'school', options: ['school', 'hospital', 'market', 'church'], hint: 'A place for learning.', world: 'School Yard' },
+  { language: 'Chinese', prompt: 'Choose the Chinese word for "dog".', answer: '狗 (gǒu)', options: ['狗 (gǒu)', '猫 (māo)', '鸟 (niǎo)', '鱼 (yú)'], hint: 'A common pet.', world: 'Pet Corner' },
+  { language: 'Chinese', prompt: 'What does "大" (dà) mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not small.', world: 'Big Mountain' },
+  { language: 'Chinese', prompt: 'Translate "good night".', answer: '晚安 (wǎn\'ān)', options: ['晚安 (wǎn\'ān)', '早上好 (zǎoshang hǎo)', '晚上好 (wǎnshang hǎo)', '明天见 (míngtiān jiàn)'], hint: 'Before sleep.', world: 'Night Rest' },
+  { language: 'Chinese', prompt: 'What does "时间" (shíjiān) mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Clock' },
+  { language: 'Chinese', prompt: 'Choose the Chinese word for "apple".', answer: '苹果 (píngguǒ)', options: ['苹果 (píngguǒ)', '香蕉 (xiāngjiāo)', '橙子 (chéngzi)', '柠檬 (níngméng)'], hint: 'A red or green fruit.', world: 'Orchard Lane' },
+  { language: 'Chinese', prompt: 'What does "快乐" (kuàilè) mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Joy Castle' },
+  { language: 'Chinese', prompt: 'Translate "I love it".', answer: '我喜欢它 (Wǒ xǐhuān tā)', options: ['我喜欢它 (Wǒ xǐhuān tā)', '我讨厌它 (Wǒ tǎoyàn tā)', '我喜欢 (Wǒ xǐhuān)', '我害怕 (Wǒ hàipà)'], hint: 'You adore something.', world: 'Love Temple' },
+  { language: 'Chinese', prompt: 'Translate "excuse me".', answer: '对不起 (duìbùqǐ)', options: ['对不起 (duìbùqǐ)', '请 (qǐng)', '好的 (hǎo de)', '没关系 (méi guānxi)'], hint: 'A polite interruption.', world: 'Polite Plaza' },
+
+  // Korean - NEW
+  { language: 'Korean', prompt: 'What does "안녕하세요" (annyeonghaseyo) mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'yes'], hint: 'A polite greeting.', world: 'Korean Gate' },
+  { language: 'Korean', prompt: 'Choose the Korean word for "water".', answer: '물 (mul)', options: ['물 (mul)', '빵 (ppang)', '책 (chaek)', '친구 (chingu)'], hint: 'You drink it.', world: 'Water Spring' },
+  { language: 'Korean', prompt: 'Translate "thank you" into Korean.', answer: '감사합니다 (gamsahamnida)', options: ['감사합니다 (gamsahamnida)', '죄송합니다 (joeseonghamnida)', '부탁합니다 (butakhamnida)', '예 (ye)'], hint: 'A polite word after help.', world: 'Gratitude Hall' },
+  { language: 'Korean', prompt: 'What does "아니요" (aniyo) mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'never'], hint: 'The opposite of 예.', world: 'No Tower' },
+  { language: 'Korean', prompt: 'Choose the Korean word for "friend".', answer: '친구 (chingu)', options: ['친구 (chingu)', '적 (jeok)', '형제 (hyungje)', '이웃 (iut)'], hint: 'Someone you trust.', world: 'Friend Path' },
+  { language: 'Korean', prompt: 'What does "집" (jip) mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where you live.', world: 'Home Valley' },
+  { language: 'Korean', prompt: 'Translate "good morning".', answer: '좋은 아침 (joeun achim)', options: ['좋은 아침 (joeun achim)', '좋은 저녁 (joeun jeonyeok)', '안녕히 주무세요 (annyeonghi jumuseyo)', '안녕히 가세요 (annyeonghi gaseyo)'], hint: 'A daytime greeting.', world: 'Morning Light' },
+  { language: 'Korean', prompt: 'What does "음식" (eumsik) mean?', answer: 'food', options: ['food', 'water', 'air', 'fire'], hint: 'What you eat.', world: 'Kitchen Garden' },
+  { language: 'Korean', prompt: 'Choose the Korean word for "red".', answer: '빨강 (ppalggang)', options: ['빨강 (ppalggang)', '파랑 (pararang)', '초록 (chorок)', '노랑 (norang)'], hint: 'The color of fire.', world: 'Red Square' },
+  { language: 'Korean', prompt: 'What does "책" (chaek) mean?', answer: 'book', options: ['book', 'table', 'chair', 'door'], hint: 'You read it.', world: 'Library Steps' },
+  { language: 'Korean', prompt: 'Translate "I am ready".', answer: '준비됐어요 (junbidwasseoyo)', options: ['준비됐어요 (junbidwasseoyo)', '배고파요 (baegopayo)', '피곤해요 (pigonhaeyo)', '추워요 (chuweoyo)'], hint: 'Prepared and set.', world: 'Ready Gate' },
+  { language: 'Korean', prompt: 'What does "학교" (hakgyo) mean?', answer: 'school', options: ['school', 'hospital', 'market', 'church'], hint: 'A place for learning.', world: 'School Yard' },
+  { language: 'Korean', prompt: 'Choose the Korean word for "dog".', answer: '개 (gae)', options: ['개 (gae)', '고양이 (goyangi)', '새 (sae)', '물고기 (mulgogi)'], hint: 'A common pet.', world: 'Pet Corner' },
+  { language: 'Korean', prompt: 'What does "크다" (keuda) mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not small.', world: 'Big Mountain' },
+  { language: 'Korean', prompt: 'Translate "good night".', answer: '안녕히 주무세요 (annyeonghi jumuseyo)', options: ['안녕히 주무세요 (annyeonghi jumuseyo)', '좋은 아침 (joeun achim)', '좋은 저녁 (joeun jeonyeok)', '내일 봐요 (naeil bwayo)'], hint: 'Before sleep.', world: 'Night Rest' },
+  { language: 'Korean', prompt: 'What does "시간" (sigan) mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Clock' },
+  { language: 'Korean', prompt: 'Choose the Korean word for "apple".', answer: '사과 (sagwa)', options: ['사과 (sagwa)', '바나나 (banana)', '오렌지 (orenji)', '레몬 (remon)'], hint: 'A red or green fruit.', world: 'Orchard Lane' },
+  { language: 'Korean', prompt: 'What does "행복" (haengbok) mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Joy Castle' },
+  { language: 'Korean', prompt: 'Translate "I love it".', answer: '사랑해요 (saranghaeyo)', options: ['사랑해요 (saranghaeyo)', '싫어요 (silheoyo)', '좋아요 (joahyo)', '무서워요 (museowoyeo)'], hint: 'You adore something.', world: 'Love Temple' },
+  { language: 'Korean', prompt: 'Translate "excuse me".', answer: '죄송합니다 (joeseonghamnida)', options: ['죄송합니다 (joeseonghamnida)', '부탁합니다 (butakhamnida)', '괜찮아요 (gwaenchanayo)', '아니요 (aniyo)'], hint: 'A polite interruption.', world: 'Polite Plaza' },
+
+  // Arabic - NEW
+  { language: 'Arabic', prompt: 'What does "مرحبا" (marhaba) mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'yes'], hint: 'A friendly greeting.', world: 'Arabic Souk' },
+  { language: 'Arabic', prompt: 'Choose the Arabic word for "water".', answer: 'ماء (maa)', options: ['ماء (maa)', 'خبز (khubz)', 'كتاب (kitaab)', 'صديق (sadeeq)'], hint: 'You drink it.', world: 'Water Oasis' },
+  { language: 'Arabic', prompt: 'Translate "thank you" into Arabic.', answer: 'شكرا (shukran)', options: ['شكرا (shukran)', 'معذرة (muadharah)', 'من فضلك (min fadhlak)', 'نعم (naam)'], hint: 'A polite word after help.', world: 'Gratitude Square' },
+  { language: 'Arabic', prompt: 'What does "لا" (la) mean?', answer: 'no', options: ['no', 'yes', 'maybe', 'never'], hint: 'The opposite of نعم.', world: 'No Gate' },
+  { language: 'Arabic', prompt: 'Choose the Arabic word for "friend".', answer: 'صديق (sadeeq)', options: ['صديق (sadeeq)', 'عدو (aduw)', 'أخ (akh)', 'جار (jar)'], hint: 'Someone you trust.', world: 'Friend Path' },
+  { language: 'Arabic', prompt: 'What does "بيت" (bayt) mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where you live.', world: 'Home Valley' },
+  { language: 'Arabic', prompt: 'Translate "good morning".', answer: 'صباح الخير (sabah al-khair)', options: ['صباح الخير (sabah al-khair)', 'مساء الخير (masaa al-khair)', 'تصبح على خير (tasba7 ala khair)', 'وداعا (wadaana)'], hint: 'A daytime greeting.', world: 'Morning Light' },
+  { language: 'Arabic', prompt: 'What does "طعام" (taam) mean?', answer: 'food', options: ['food', 'water', 'air', 'fire'], hint: 'What you eat.', world: 'Kitchen Garden' },
+  { language: 'Arabic', prompt: 'Choose the Arabic word for "red".', answer: 'أحمر (ahmar)', options: ['أحمر (ahmar)', 'أزرق (azraq)', 'أخضر (akhdar)', 'أصفر (asfar)'], hint: 'The color of fire.', world: 'Red Square' },
+  { language: 'Arabic', prompt: 'What does "كتاب" (kitaab) mean?', answer: 'book', options: ['book', 'table', 'chair', 'door'], hint: 'You read it.', world: 'Library Steps' },
+  { language: 'Arabic', prompt: 'Translate "I am ready".', answer: 'أنا جاهز (ana jahiz)', options: ['أنا جاهز (ana jahiz)', 'أنا جوعان (ana jouaan)', 'أنا متعب (ana motaab)', 'أنا بارد (ana barid)'], hint: 'Prepared and set.', world: 'Ready Gate' },
+  { language: 'Arabic', prompt: 'What does "مدرسة" (madrasa) mean?', answer: 'school', options: ['school', 'hospital', 'market', 'church'], hint: 'A place for learning.', world: 'School Yard' },
+  { language: 'Arabic', prompt: 'Choose the Arabic word for "dog".', answer: 'كلب (kalb)', options: ['كلب (kalb)', 'قطة (qitta)', 'طير (tair)', 'سمك (samak)'], hint: 'A common pet.', world: 'Pet Corner' },
+  { language: 'Arabic', prompt: 'What does "كبير" (kabir) mean?', answer: 'big', options: ['big', 'small', 'medium', 'tiny'], hint: 'Not small.', world: 'Big Mountain' },
+  { language: 'Arabic', prompt: 'Translate "good night".', answer: 'تصبح على خير (tasba7 ala khair)', options: ['تصبح على خير (tasba7 ala khair)', 'صباح الخير (sabah al-khair)', 'مساء الخير (masaa al-khair)', 'إلى غد (ila ghad)'], hint: 'Before sleep.', world: 'Night Rest' },
+  { language: 'Arabic', prompt: 'What does "وقت" (waqt) mean?', answer: 'time', options: ['time', 'space', 'place', 'thing'], hint: 'Hours and minutes.', world: 'Time Clock' },
+  { language: 'Arabic', prompt: 'Choose the Arabic word for "apple".', answer: 'تفاحة (tuffaha)', options: ['تفاحة (tuffaha)', 'موز (mooz)', 'برتقالة (burtuqala)', 'ليمون (limon)'], hint: 'A red or green fruit.', world: 'Orchard Lane' },
+  { language: 'Arabic', prompt: 'What does "سعيد" (saeed) mean?', answer: 'happy', options: ['happy', 'sad', 'angry', 'tired'], hint: 'Full of joy.', world: 'Joy Castle' },
+  { language: 'Arabic', prompt: 'Translate "I love it".', answer: 'أنا أحبها (ana ahibha)', options: ['أنا أحبها (ana ahibha)', 'أنا أكرهها (ana akrahha)', 'أنا أحب (ana ahib)', 'أنا خائف (ana khayif)'], hint: 'You adore something.', world: 'Love Temple' },
+  { language: 'Arabic', prompt: 'Translate "excuse me".', answer: 'معذرة (muadharah)', options: ['معذرة (muadharah)', 'من فضلك (min fadhlak)', 'لا يهمك (la yahumak)', 'حسنا (hasna)'], hint: 'A polite interruption.', world: 'Polite Plaza' },
+
+  // Extra practice lessons
+  { language: 'Spanish', prompt: 'What does "sol" mean?', answer: 'sun', options: ['sun', 'moon', 'river', 'tree'], hint: 'It shines in the sky.', world: 'Sun Plaza' },
+  { language: 'Spanish', prompt: 'Choose the Spanish word for "music".', answer: 'música', options: ['música', 'comida', 'cielo', 'puerta'], hint: 'You can listen to it.', world: 'Sound Garden' },
+  { language: 'French', prompt: 'What does "maison" mean?', answer: 'house', options: ['house', 'street', 'garden', 'river'], hint: 'A place where someone lives.', world: 'Home Lane' },
+  { language: 'French', prompt: 'Choose the French word for "sun".', answer: 'soleil', options: ['soleil', 'lune', 'eau', 'pain'], hint: 'It gives light in the day.', world: 'Sunny Square' },
+  { language: 'German', prompt: 'What does "brot" mean?', answer: 'bread', options: ['bread', 'water', 'milk', 'stone'], hint: 'A common food.', world: 'Bakery Road' },
+  { language: 'German', prompt: 'Choose the German word for "music".', answer: 'musik', options: ['musik', 'haus', 'feld', 'baum'], hint: 'Something you can listen to.', world: 'Music Hall' },
+  { language: 'English', prompt: 'Choose the opposite of "full".', answer: 'empty', options: ['empty', 'bright', 'kind', 'cold'], hint: 'Not filled.', world: 'Empty Harbor' },
+  { language: 'English', prompt: 'Complete: We ___ home after school.', answer: 'go', options: ['go', 'goes', 'going', 'went'], hint: 'Use the base verb with we.', world: 'Journey Lane' },
+  { language: 'Portuguese', prompt: 'What does "casa" mean?', answer: 'house', options: ['house', 'car', 'road', 'tree'], hint: 'A place where you live.', world: 'Home Square' },
+  { language: 'Portuguese', prompt: 'Translate "goodbye" into Portuguese.', answer: 'tchau', options: ['tchau', 'obrigado', 'por favor', 'sim'], hint: 'A friendly farewell.', world: 'Farewell Beach' },
+  { language: 'Italian', prompt: 'What does "cibo" mean?', answer: 'food', options: ['food', 'water', 'book', 'air'], hint: 'What you eat.', world: 'Kitchen Street' },
+  { language: 'Italian', prompt: 'Choose the Italian word for "friend".', answer: 'amico', options: ['amico', 'casa', 'mare', 'libro'], hint: 'Someone you trust and like.', world: 'Friend Bridge' },
+  { language: 'Russian', prompt: 'What does "друг" mean?', answer: 'friend', options: ['friend', 'enemy', 'teacher', 'river'], hint: 'Someone you care about.', world: 'Friend Square' },
+  { language: 'Russian', prompt: 'Choose the Russian word for "water".', answer: 'вода', options: ['вода', 'молоко', 'хлеб', 'солнце'], hint: 'You drink it.', world: 'River Bank' },
+  { language: 'Japanese', prompt: 'What does "おはよう" mean?', answer: 'good morning', options: ['good morning', 'good night', 'thank you', 'hello'], hint: 'A greeting in the morning.', world: 'Morning Gate' },
+  { language: 'Japanese', prompt: 'Choose the Japanese word for "friend".', answer: '友達 (tomodachi)', options: ['友達 (tomodachi)', '家 (ie)', '水 (mizu)', '本 (hon)'], hint: 'Someone you trust and like.', world: 'Friend Path' },
+  { language: 'Chinese', prompt: 'What does "太阳" (tàiyáng) mean?', answer: 'sun', options: ['sun', 'moon', 'rain', 'wind'], hint: 'It shines in the sky.', world: 'Sun Court' },
+  { language: 'Chinese', prompt: 'Choose the Chinese word for "music".', answer: '音乐 (yīnyuè)', options: ['音乐 (yīnyuè)', '水果 (shuǐguǒ)', '老师 (lǎoshī)', '街道 (jiēdào)'], hint: 'You can listen to it.', world: 'Song Bridge' },
+  { language: 'Korean', prompt: 'What does "음악" (eumak) mean?', answer: 'music', options: ['music', 'food', 'book', 'sky'], hint: 'Something you can listen to.', world: 'Music Hall' },
+  { language: 'Korean', prompt: 'Choose the Korean word for "sun".', answer: '태양 (taeyang)', options: ['태양 (taeyang)', '달 (dal)', '바다 (bada)', '비 (bi)'], hint: 'It shines during the day.', world: 'Sunny Peak' },
+  { language: 'Arabic', prompt: 'What does "شمس" (shams) mean?', answer: 'sun', options: ['sun', 'moon', 'cloud', 'tree'], hint: 'It shines in the sky.', world: 'Sun Oasis' },
+  { language: 'Arabic', prompt: 'Choose the Arabic word for "music".', answer: 'موسيقى (musiiqa)', options: ['موسيقى (musiiqa)', 'طعام (taam)', 'بيت (bayt)', 'نهر (nahr)'], hint: 'Something you can listen to.', world: 'Music Court' },
+
+  { language: 'Spanish', prompt: 'Choose the Spanish word for "river".', answer: 'río', options: ['río', 'cielo', 'música', 'pan'], hint: 'A stream of water.', world: 'River Walk' },
+  { language: 'Spanish', prompt: 'What does "verde" mean?', answer: 'green', options: ['green', 'red', 'yellow', 'black'], hint: 'The color of grass.', world: 'Green Meadow' },
+  { language: 'French', prompt: 'What does "lune" mean?', answer: 'moon', options: ['moon', 'sun', 'star', 'cloud'], hint: 'It shines at night.', world: 'Moon Square' },
+  { language: 'French', prompt: 'Choose the French word for "tree".', answer: 'arbre', options: ['arbre', 'pont', 'rue', 'mer'], hint: 'It grows from the ground.', world: 'Forest Path' },
+  { language: 'German', prompt: 'What does "baum" mean?', answer: 'tree', options: ['tree', 'road', 'sky', 'stone'], hint: 'It has branches and leaves.', world: 'Tree Grove' },
+  { language: 'German', prompt: 'Choose the German word for "moon".', answer: 'mond', options: ['mond', 'sonne', 'stern', 'fluss'], hint: 'It shines at night.', world: 'Moonlight Lane' },
+  { language: 'English', prompt: 'Choose the synonym of "happy".', answer: 'joyful', options: ['joyful', 'angry', 'rough', 'kind'], hint: 'It means full of delight.', world: 'Joy Valley' },
+  { language: 'English', prompt: 'Complete: The cat is ___ the box.', answer: 'under', options: ['under', 'over', 'inside', 'between'], hint: 'It is below something.', world: 'Cat Corner' },
+  { language: 'Portuguese', prompt: 'What does "sol" mean?', answer: 'sun', options: ['sun', 'moon', 'rain', 'wind'], hint: 'It shines during the day.', world: 'Sun Street' },
+  { language: 'Portuguese', prompt: 'Choose the Portuguese word for "tree".', answer: 'árvore', options: ['árvore', 'rio', 'paz', 'caminho'], hint: 'It grows outside.', world: 'Forest Road' },
+  { language: 'Italian', prompt: 'What does "mare" mean?', answer: 'sea', options: ['sea', 'mountain', 'city', 'field'], hint: 'A large body of water.', world: 'Coastal Path' },
+  { language: 'Italian', prompt: 'Choose the Italian word for "sun".', answer: 'sole', options: ['sole', 'luna', 'vento', 'neve'], hint: 'It shines in daytime.', world: 'Sunny Square' },
+  { language: 'Russian', prompt: 'What does "солнце" mean?', answer: 'sun', options: ['sun', 'moon', 'star', 'cloud'], hint: 'It shines in the sky.', world: 'Sun Hill' },
+  { language: 'Russian', prompt: 'Choose the Russian word for "tree".', answer: 'дерево', options: ['дерево', 'река', 'дом', 'мост'], hint: 'It has branches and leaves.', world: 'Forest Gate' },
+  { language: 'Japanese', prompt: 'What does "月" mean?', answer: 'moon', options: ['moon', 'sun', 'river', 'mountain'], hint: 'It glows at night.', world: 'Night Sky' },
+  { language: 'Japanese', prompt: 'Choose the Japanese word for "tree".', answer: '木 (ki)', options: ['木 (ki)', '川 (kawa)', '川 (kawa)', '石 (ishi)'], hint: 'A tall plant with branches.', world: 'Forest Path' },
+  { language: 'Chinese', prompt: 'What does "月亮" (yuèliàng) mean?', answer: 'moon', options: ['moon', 'sun', 'star', 'rain'], hint: 'It shines at night.', world: 'Moon Court' },
+  { language: 'Chinese', prompt: 'Choose the Chinese word for "river".', answer: '河 (hé)', options: ['河 (hé)', '山 (shān)', '云 (yún)', '花 (huā)'], hint: 'A flowing body of water.', world: 'River Gate' },
+  { language: 'Korean', prompt: 'What does "달" (dal) mean?', answer: 'moon', options: ['moon', 'sun', 'star', 'cloud'], hint: 'It appears in the night sky.', world: 'Moon Peak' },
+  { language: 'Korean', prompt: 'Choose the Korean word for "tree".', answer: '나무 (namu)', options: ['나무 (namu)', '바다 (bada)', '도시 (dosi)', '길 (gil)'], hint: 'A tall plant with branches.', world: 'Tree Grove' },
+  { language: 'Arabic', prompt: 'What does "قمر" (qamar) mean?', answer: 'moon', options: ['moon', 'sun', 'star', 'river'], hint: 'It shines at night.', world: 'Moon Oasis' },
+  { language: 'Arabic', prompt: 'Choose the Arabic word for "tree".', answer: 'شجرة (shajara)', options: ['شجرة (shajara)', 'نهر (nahr)', 'بيت (bayt)', 'مطر (matar)'], hint: 'It grows from the ground.', world: 'Tree Court' },
+];
+
+const topicQuests: Quest[] = [
+  { language: 'Kazakh', prompt: 'Tech: What does "computer" mean?', answer: 'kompyuter', options: ['kompyuter', 'dop', 'dari', 'suret'], hint: 'A machine used for apps, games, and study.', world: 'Tech Lab' },
+  { language: 'Kazakh', prompt: 'Health: Choose the Kazakh word for "medicine".', answer: 'dari', options: ['dari', 'qala', 'qalam', 'aspaz'], hint: 'It helps someone feel better.', world: 'Health Tent' },
+  { language: 'Spanish', prompt: 'Tech: What does "pantalla" mean?', answer: 'screen', options: ['screen', 'helmet', 'river', 'brush'], hint: 'You look at it on a phone or computer.', world: 'Screen Plaza' },
+  { language: 'Spanish', prompt: 'Sports: Choose the Spanish word for "team".', answer: 'equipo', options: ['equipo', 'pincel', 'salud', 'tecla'], hint: 'Players working together.', world: 'Team Field' },
+  { language: 'French', prompt: 'Art: What does "peinture" mean?', answer: 'painting', options: ['painting', 'keyboard', 'medicine', 'score'], hint: 'A picture made with colors.', world: 'Art Cafe' },
+  { language: 'French', prompt: 'Health: Choose the French word for "health".', answer: 'sante', options: ['sante', 'ecran', 'equipe', 'pinceau'], hint: 'How well your body feels.', world: 'Health Garden' },
+  { language: 'German', prompt: 'Tech: What does "tastatur" mean?', answer: 'keyboard', options: ['keyboard', 'team', 'painting', 'medicine'], hint: 'You type with it.', world: 'Keyboard Hall' },
+  { language: 'German', prompt: 'Sports: Choose the German word for "goal".', answer: 'tor', options: ['tor', 'arzt', 'bild', 'taste'], hint: 'A point in football.', world: 'Goal Arena' },
+  { language: 'English', prompt: 'Tech: Choose the device used to type.', answer: 'keyboard', options: ['keyboard', 'helmet', 'brush', 'vitamin'], hint: 'It has many keys.', world: 'Typing Lab' },
+  { language: 'English', prompt: 'Health: Complete: Drinking water is a healthy ___.', answer: 'habit', options: ['habit', 'score', 'screen', 'brush'], hint: 'Something you do often.', world: 'Habit Trail' },
+  { language: 'Portuguese', prompt: 'Art: What does "pintura" mean?', answer: 'painting', options: ['painting', 'keyboard', 'team', 'medicine'], hint: 'Art made with paint.', world: 'Paint Street' },
+  { language: 'Portuguese', prompt: 'Sports: Choose the Portuguese word for "score".', answer: 'placar', options: ['placar', 'saude', 'tela', 'pincel'], hint: 'The number of points in a game.', world: 'Score Beach' },
+  { language: 'Italian', prompt: 'Tech: What does "schermo" mean?', answer: 'screen', options: ['screen', 'team', 'doctor', 'painting'], hint: 'A phone or laptop has one.', world: 'Screen Lane' },
+  { language: 'Italian', prompt: 'Health: Choose the Italian word for "doctor".', answer: 'dottore', options: ['dottore', 'squadra', 'tastiera', 'quadro'], hint: 'A person who helps sick people.', world: 'Clinic Road' },
+  { language: 'Russian', prompt: 'Tech: What does "ekran" mean?', answer: 'screen', options: ['screen', 'team', 'medicine', 'brush'], hint: 'You watch videos on it.', world: 'Screen Square' },
+  { language: 'Russian', prompt: 'Art: Choose the Russian word for "painting".', answer: 'kartina', options: ['kartina', 'komanda', 'zdorovye', 'klaviatura'], hint: 'A picture made by an artist.', world: 'Art Square' },
+  { language: 'Japanese', prompt: 'Sports: What does "chiimu" mean?', answer: 'team', options: ['team', 'screen', 'doctor', 'brush'], hint: 'Players working together.', world: 'Team Garden' },
+  { language: 'Japanese', prompt: 'Tech: Choose the Japanese word for "computer".', answer: 'pasokon', options: ['pasokon', 'kusuri', 'e', 'tokuten'], hint: 'A device used for school and games.', world: 'Tech Path' },
+  { language: 'Chinese', prompt: 'Health: What does "jiankang" mean?', answer: 'health', options: ['health', 'team', 'keyboard', 'painting'], hint: 'How well your body feels.', world: 'Health Court' },
+  { language: 'Chinese', prompt: 'Tech: Choose the Chinese word for "screen".', answer: 'pingmu', options: ['pingmu', 'qiu dui', 'yao', 'hua bi'], hint: 'The display on a phone.', world: 'Screen Gate' },
+  { language: 'Korean', prompt: 'Art: What does "geurim" mean?', answer: 'painting', options: ['painting', 'doctor', 'keyboard', 'score'], hint: 'A picture or drawing.', world: 'Art Hall' },
+  { language: 'Korean', prompt: 'Sports: Choose the Korean word for "team".', answer: 'tim', options: ['tim', 'yak', 'hwamyeon', 'bus'], hint: 'Players working together.', world: 'Team Peak' },
+  { language: 'Arabic', prompt: 'Tech: What does "hashub" mean?', answer: 'computer', options: ['computer', 'medicine', 'team', 'painting'], hint: 'A device for apps and study.', world: 'Tech Oasis' },
+  { language: 'Arabic', prompt: 'Health: Choose the Arabic word for "health".', answer: 'sihha', options: ['sihha', 'fariq', 'shasha', 'rasm'], hint: 'How well your body feels.', world: 'Health Oasis' },
+];
+
+const hardLanguageQuests: Quest[] = [
+  { language: 'Kazakh', prompt: 'Hard: What does "evidence" mean?', answer: 'dalel', options: ['dalel', 'qalgan', 'arzan', 'zharys'], hint: 'Proof that helps show something is true.', world: 'Proof Ridge' },
+  { language: 'Kazakh', prompt: 'Hard: Choose the English word for "mindet".', answer: 'responsibility', options: ['responsibility', 'weather', 'shortcut', 'blanket'], hint: 'A duty you should take care of.', world: 'Duty Gate' },
+  { language: 'Spanish', prompt: 'Hard: What does "consecuencia" mean?', answer: 'consequence', options: ['consequence', 'shortcut', 'blanket', 'window'], hint: 'A result of an action.', world: 'Cause Plaza' },
+  { language: 'Spanish', prompt: 'Hard: Choose the Spanish word for "challenge".', answer: 'desafio', options: ['desafio', 'almohada', 'bolsillo', 'rueda'], hint: 'Something difficult that tests you.', world: 'Desafio Hill' },
+  { language: 'French', prompt: 'Hard: What does "preuve" mean?', answer: 'evidence', options: ['evidence', 'promise', 'mirror', 'ladder'], hint: 'Proof for an idea or claim.', world: 'Proof Cafe' },
+  { language: 'French', prompt: 'Hard: Choose the French word for "although".', answer: 'bien que', options: ['bien que', 'pres de', 'autour de', 'plus tard'], hint: 'It shows contrast between two ideas.', world: 'Contrast Bridge' },
+  { language: 'German', prompt: 'Hard: What does "verantwortung" mean?', answer: 'responsibility', options: ['responsibility', 'arrival', 'blanket', 'noise'], hint: 'A duty or thing you must handle.', world: 'Duty Hall' },
+  { language: 'German', prompt: 'Hard: Choose the German word for "evidence".', answer: 'beweis', options: ['beweis', 'miete', 'larm', 'schirm'], hint: 'Proof that supports a claim.', world: 'Beweis Tower' },
+  { language: 'English', prompt: 'Hard: Choose the synonym of "scarce".', answer: 'rare', options: ['rare', 'simple', 'loud', 'wide'], hint: 'There is not much of it.', world: 'Rare Pass' },
+  { language: 'English', prompt: 'Hard: Complete: Although it was late, they ___ practicing.', answer: 'continued', options: ['continued', 'continue', 'continuing', 'continues'], hint: 'Use past tense after "was late".', world: 'Grammar Summit' },
+  { language: 'Portuguese', prompt: 'Hard: What does "evidencia" mean?', answer: 'evidence', options: ['evidence', 'shortcut', 'pencil', 'helmet'], hint: 'Proof for something.', world: 'Proof Beach' },
+  { language: 'Portuguese', prompt: 'Hard: Choose the Portuguese word for "improve".', answer: 'melhorar', options: ['melhorar', 'alugar', 'cobrir', 'pular'], hint: 'To make something better.', world: 'Better Street' },
+  { language: 'Italian', prompt: 'Hard: What does "conseguenza" mean?', answer: 'consequence', options: ['consequence', 'ladder', 'curtain', 'wallet'], hint: 'A result caused by something.', world: 'Cause Road' },
+  { language: 'Italian', prompt: 'Hard: Choose the Italian word for "patience".', answer: 'pazienza', options: ['pazienza', 'tasca', 'ruota', 'nebbia'], hint: 'Staying calm while waiting.', world: 'Calm Square' },
+  { language: 'Russian', prompt: 'Hard: What does "dokazatelstvo" mean?', answer: 'evidence', options: ['evidence', 'blanket', 'shortcut', 'pocket'], hint: 'Proof that something is true.', world: 'Proof Square' },
+  { language: 'Russian', prompt: 'Hard: Choose the Russian word for "responsibility".', answer: 'otvetstvennost', options: ['otvetstvennost', 'pogoda', 'koleso', 'sumka'], hint: 'A duty you must take care of.', world: 'Duty Square' },
+  { language: 'Japanese', prompt: 'Hard: What does "shouko" mean?', answer: 'evidence', options: ['evidence', 'curtain', 'ladder', 'wallet'], hint: 'Proof for a statement.', world: 'Proof Garden' },
+  { language: 'Japanese', prompt: 'Hard: Choose the Japanese word for "challenge".', answer: 'chousen', options: ['chousen', 'kaidan', 'kasa', 'kaban'], hint: 'A difficult test or goal.', world: 'Challenge Path' },
+  { language: 'Chinese', prompt: 'Hard: What does "zhengju" mean?', answer: 'evidence', options: ['evidence', 'mirror', 'blanket', 'ladder'], hint: 'Proof that supports an answer.', world: 'Proof Court' },
+  { language: 'Chinese', prompt: 'Hard: Choose the Chinese word for "improve".', answer: 'gaishan', options: ['gaishan', 'zulin', 'tiaowu', 'zhedie'], hint: 'To make better.', world: 'Better Gate' },
+  { language: 'Korean', prompt: 'Hard: What does "jeungeo" mean?', answer: 'evidence', options: ['evidence', 'noise', 'pocket', 'wheel'], hint: 'Proof that supports a claim.', world: 'Proof Hall' },
+  { language: 'Korean', prompt: 'Hard: Choose the Korean word for "patience".', answer: 'inchim', options: ['inchim', 'badak', 'moja', 'sori'], hint: 'Calm waiting without giving up.', world: 'Calm Peak' },
+  { language: 'Arabic', prompt: 'Hard: What does "daleel" mean?', answer: 'evidence', options: ['evidence', 'mirror', 'ladder', 'wallet'], hint: 'Proof for an idea.', world: 'Proof Oasis' },
+  { language: 'Arabic', prompt: 'Hard: Choose the Arabic word for "responsibility".', answer: 'masuliyya', options: ['masuliyya', 'ghita', 'dawda', 'jayb'], hint: 'A duty you must handle.', world: 'Duty Oasis' },
+];
+
+const quests: Quest[] = [
+  ...kazakhQuests.map((quest) => ({ ...quest, language: 'Kazakh' as const })),
+  ...extraLanguageQuests,
+  ...topicQuests,
+];
+const allQuests = [...quests, ...hardLanguageQuests];
+const availableLanguages: Exclude<Language, 'All'>[] = Array.from(new Set(allQuests.map((quest) => quest.language)));
+const playableLanguageOptions: Language[] = ['All', ...availableLanguages];
+
+const topicLessonPacks: LessonPack[] = [
+  {
+    id: 'basics',
+    title: 'Basics',
+    description: 'Greetings, simple words, and everyday phrases.',
+    keywords: ['hello', 'thank you', 'friend', 'house', 'school', 'food', 'no', 'water', 'book'],
+  },
+  {
+    id: 'daily-life',
+    title: 'Daily life',
+    description: 'Useful words for home, routine, and common objects.',
+    keywords: ['music', 'time', 'school', 'house', 'food', 'book', 'day', 'morning', 'city'],
+  },
+  {
+    id: 'nature',
+    title: 'Nature & weather',
+    description: 'Words for the sky, sun, moon, trees, and water.',
+    keywords: ['sun', 'moon', 'tree', 'river', 'sea', 'green', 'water', 'rain', 'wind'],
+  },
+  {
+    id: 'travel',
+    title: 'Travel',
+    description: 'Words that help you explore new places and talk about journeys.',
+    keywords: ['travel', 'road', 'city', 'bridge', 'journey', 'welcome', 'goodbye', 'ready'],
+  },
+  {
+    id: 'greetings',
+    title: 'Greetings',
+    description: 'Hello, goodbye, welcome, and polite first phrases.',
+    keywords: ['hello', 'good morning', 'good night', 'welcome', 'see you', 'greeting', 'goodbye'],
+  },
+  {
+    id: 'school',
+    title: 'School',
+    description: 'Words for class, teachers, books, and learning.',
+    keywords: ['school', 'teacher', 'book', 'pen', 'learn', 'read', 'student', 'sentence'],
+  },
+  {
+    id: 'food',
+    title: 'Food',
+    description: 'Meals, drinks, fruits, and useful food words.',
+    keywords: ['food', 'water', 'bread', 'milk', 'apple', 'comida', 'essen', 'drink'],
+  },
+  {
+    id: 'colors',
+    title: 'Colors',
+    description: 'Practice common color words.',
+    keywords: ['red', 'blue', 'green', 'yellow', 'white', 'color', 'rouge', 'rojo', 'rot'],
+  },
+  {
+    id: 'feelings',
+    title: 'Feelings',
+    description: 'Happy, sad, ready, tired, and simple emotions.',
+    keywords: ['happy', 'sad', 'ready', 'love', 'like', 'tired', 'scared', 'angry'],
+  },
+  {
+    id: 'animals',
+    title: 'Animals',
+    description: 'Pets and animal words from different languages.',
+    keywords: ['dog', 'cat', 'bird', 'fish', 'perro', 'chien', 'hund', 'pet'],
+  },
+  {
+    id: 'home',
+    title: 'Home',
+    description: 'House, family, doors, windows, and home objects.',
+    keywords: ['house', 'home', 'family', 'door', 'window', 'chair', 'table', 'room'],
+  },
+  {
+    id: 'time',
+    title: 'Time',
+    description: 'Clock words, days, morning, night, and time phrases.',
+    keywords: ['time', 'clock', 'morning', 'night', 'day', 'evening', 'today', 'Monday'],
+  },
+  {
+    id: 'grammar',
+    title: 'Grammar',
+    description: 'Short grammar practice with simple sentence patterns.',
+    keywords: ['complete', 'present simple', 'can', 'studies', 'listen', 'plays', 'know'],
+  },
+  {
+    id: 'city',
+    title: 'City',
+    description: 'Places, roads, markets, streets, and city words.',
+    keywords: ['city', 'road', 'street', 'market', 'plaza', 'gate', 'school', 'hospital'],
+  },
+  {
+    id: 'polite',
+    title: 'Polite words',
+    description: 'Thank you, excuse me, please, and friendly phrases.',
+    keywords: ['thank you', 'excuse me', 'please', 'sorry', 'polite', 'gracias', 'merci', 'danke'],
+  },
+  {
+    id: 'technology',
+    title: 'Technology',
+    description: 'Computer, screen, keyboard, and useful digital words.',
+    keywords: ['tech:', 'computer', 'screen', 'keyboard', 'pantalla', 'tastatur', 'schermo'],
+  },
+  {
+    id: 'health',
+    title: 'Health',
+    description: 'Health, medicine, doctors, and healthy habits.',
+    keywords: ['health:', 'health', 'medicine', 'doctor', 'habit', 'sante', 'sihha'],
+  },
+  {
+    id: 'sports',
+    title: 'Sports',
+    description: 'Teams, goals, scores, and sports words.',
+    keywords: ['sports:', 'team', 'goal', 'score', 'equipo', 'placar'],
+  },
+  {
+    id: 'art',
+    title: 'Art',
+    description: 'Painting, pictures, brushes, and creative words.',
+    keywords: ['art:', 'painting', 'peinture', 'pintura', 'kartina', 'geurim'],
+  },
+  {
+    id: 'a1',
+    title: 'A1 random',
+    description: 'Beginner random practice with simple everyday words.',
+    keywords: ['hello', 'water', 'book', 'school', 'friend', 'house', 'food', 'no', 'apple', 'red'],
+  },
+  {
+    id: 'a2',
+    title: 'A2 random',
+    description: 'Easy-medium random practice with phrases and common situations.',
+    keywords: ['ready', 'time', 'city', 'travel', 'morning', 'night', 'happy', 'family', 'teacher', 'welcome'],
+  },
+  {
+    id: 'a3',
+    title: 'A3 random',
+    description: 'Harder random practice with grammar, opposites, and sentence patterns.',
+    keywords: ['complete', 'opposite', 'translate', 'present simple', 'can', 'studies', 'listens', 'plays', 'know', 'sentence'],
+  },
+  {
+    id: 'hard-words',
+    title: 'Hard words',
+    description: 'Advanced words like evidence, consequence, responsibility, and patience.',
+    keywords: ['hard:', 'evidence', 'consequence', 'responsibility', 'challenge', 'patience', 'improve', 'although'],
+    size: 10,
+  },
+];
+
+const languageLessonPacks: LessonPack[] = availableLanguages.map((language) => ({
+  id: `language-${language.toLowerCase()}`,
+  title: `${language} random`,
+  description: `Random ${language} practice with 10 questions.`,
+  keywords: [],
+  language,
+}));
+
+const languageLessonTemplates = [
+  {
+    id: 'basics',
+    title: 'Basics',
+    description: 'Greetings, thanks, friends, home, school, food, and books.',
+    keywords: ['hello', 'thank you', 'friend', 'house', 'school', 'food', 'water', 'book', 'no'],
+  },
+  {
+    id: 'phrases',
+    title: 'Phrases',
+    description: 'Useful mini phrases for polite and everyday conversations.',
+    keywords: ['good morning', 'good night', 'ready', 'excuse me', 'I love it', 'welcome', 'goodbye'],
+  },
+  {
+    id: 'nature',
+    title: 'Nature',
+    description: 'Sun, moon, trees, rivers, colors, and outdoor words.',
+    keywords: ['sun', 'moon', 'tree', 'river', 'sea', 'green', 'red', 'water', 'sky'],
+  },
+] satisfies Omit<LessonPack, 'language'>[];
+
+const focusedLanguageLessonPacks: LessonPack[] = availableLanguages.flatMap((language) =>
+  languageLessonTemplates.map((template) => ({
+    ...template,
+    id: `language-${language.toLowerCase()}-${template.id}`,
+    title: `${language} ${template.title}`,
+    description: `${template.description} 10 ${language} questions.`,
+    language,
+    size: 10,
+  })),
+);
+
+const miniLanguageLessonPacks: LessonPack[] = [
+  {
+    id: 'language-kazakh-mini',
+    title: 'Kazakh mini lesson',
+    description: 'Short Kazakh practice with 10 questions.',
+    keywords: [],
+    language: 'Kazakh',
+    size: 10,
+  },
+  {
+    id: 'language-russian-mini',
+    title: 'Russian mini lesson',
+    description: 'Short Russian practice with 10 questions.',
+    keywords: [],
+    language: 'Russian',
+    size: 10,
+  },
+  {
+    id: 'language-english-mini',
+    title: 'English mini lesson',
+    description: 'Short English practice with 10 questions.',
+    keywords: [],
+    language: 'English',
+    size: 10,
+  },
+];
+
+const lessonPacks: LessonPack[] = [
+  ...topicLessonPacks,
+  ...languageLessonPacks,
+  ...focusedLanguageLessonPacks,
+  ...miniLanguageLessonPacks,
+];
+
+const languageCards = availableLanguages.map((language) => ({
+  language,
+  questionCount: allQuests.filter((quest) => quest.language === language).length,
+  lessonCount: lessonPacks.filter((pack) => pack.language === language).length,
+  randomPackId: `language-${language.toLowerCase()}`,
+}));
+
+function matchesLessonPack(quest: Quest, packId: LessonPackId | null): boolean {
+  if (!packId) return true;
+  const pack = lessonPacks.find((item) => item.id === packId);
+  if (!pack) return true;
+
+  if (pack.language) {
+    return quest.language === pack.language;
+  }
+
+  const haystack = `${quest.prompt} ${quest.answer} ${quest.options.join(' ')}`.toLowerCase();
+  return pack.keywords.some((keyword) => haystack.includes(keyword));
+}
+
+function getRandomLessonQuestions(packId: LessonPackId, hardMode = false) {
+  const pack = lessonPacks.find((item) => item.id === packId);
+  const questionCount = pack?.size ?? defaultLessonQuestionCount;
+  const questionPool = hardMode ? hardLanguageQuests : allQuests;
+  const matchingQuests = questionPool.filter((quest) => matchesLessonPack(quest, packId));
+  const fallbackPool = hardMode ? hardLanguageQuests : quests;
+  const sourceQuests = matchingQuests.length > 0 ? matchingQuests : fallbackPool;
+  const selectedQuestions: Quest[] = [];
+
+  while (selectedQuestions.length < questionCount) {
+    selectedQuestions.push(...[...sourceQuests].sort(() => Math.random() - 0.5));
+  }
+
+  return selectedQuestions.slice(0, questionCount);
+}
+
+const wordbook = [
+  // Kazakh
+  ['Kazakh', 'travel', 'sayahat'],
+  ['Kazakh', 'friend', 'dos'],
+  ['Kazakh', 'ready', 'daiyn'],
+  ['Kazakh', 'learn', 'uirenu'],
+  ['Kazakh', 'water', 'su'],
+  ['Kazakh', 'school', 'mektep'],
+  ['Kazakh', 'book', 'kitap'],
+  ['Kazakh', 'morning', 'tan'],
+  ['Kazakh', 'city', 'qala'],
+  ['Kazakh', 'sky', 'aspan'],
+  ['Kazakh', 'apple', 'alma'],
+  ['Kazakh', 'thank you', 'raqmet'],
+  // Spanish
+  ['Spanish', 'hello', 'hola'],
+  ['Spanish', 'water', 'agua'],
+  ['Spanish', 'thank you', 'gracias'],
+  ['Spanish', 'house', 'casa'],
+  ['Spanish', 'book', 'libro'],
+  ['Spanish', 'friend', 'amigo'],
+  ['Spanish', 'no', 'no'],
+  ['Spanish', 'red', 'rojo'],
+  ['Spanish', 'food', 'comida'],
+  ['Spanish', 'happy', 'feliz'],
+  ['Spanish', 'time', 'tiempo'],
+  ['Spanish', 'dog', 'perro'],
+  // French
+  ['French', 'hello', 'bonjour'],
+  ['French', 'water', 'eau'],
+  ['French', 'thank you', 'merci'],
+  ['French', 'book', 'livre'],
+  ['French', 'friend', 'ami'],
+  ['French', 'no', 'non'],
+  ['French', 'red', 'rouge'],
+  ['French', 'dog', 'chien'],
+  ['French', 'food', 'nourriture'],
+  ['French', 'school', 'ecole'],
+  ['French', 'time', 'temps'],
+  ['French', 'happy', 'heureux'],
+  // German
+  ['German', 'hello', 'hallo'],
+  ['German', 'water', 'wasser'],
+  ['German', 'thank you', 'danke'],
+  ['German', 'school', 'schule'],
+  ['German', 'apple', 'apfel'],
+  ['German', 'no', 'nein'],
+  ['German', 'red', 'rot'],
+  ['German', 'friend', 'freund'],
+  ['German', 'house', 'haus'],
+  ['German', 'happy', 'glucklich'],
+  ['German', 'time', 'zeit'],
+  ['German', 'big', 'gross'],
+  // English
+  ['English', 'read', 'read'],
+  ['English', 'late', 'late'],
+  ['English', 'happy', 'happy'],
+  ['English', 'fast', 'fast'],
+  ['English', 'outside', 'outside'],
+  ['English', 'beautiful', 'lovely'],
+  ['English', 'curious', 'inquisitive'],
+  ['English', 'failure', 'loss'],
+  ['English', 'terrified', 'scared'],
+  ['English', 'persistent', 'continuous'],
+  // Portuguese
+  ['Portuguese', 'hello', 'ola'],
+  ['Portuguese', 'water', 'agua'],
+  ['Portuguese', 'thank you', 'obrigado'],
+  ['Portuguese', 'friend', 'amigo'],
+  ['Portuguese', 'house', 'casa'],
+  ['Portuguese', 'no', 'nao'],
+  ['Portuguese', 'food', 'comida'],
+  ['Portuguese', 'red', 'vermelho'],
+  ['Portuguese', 'book', 'livro'],
+  ['Portuguese', 'happy', 'feliz'],
+  ['Portuguese', 'time', 'tempo'],
+  ['Portuguese', 'apple', 'maca'],
+  // Italian
+  ['Italian', 'hello', 'ciao'],
+  ['Italian', 'water', 'acqua'],
+  ['Italian', 'thank you', 'grazie'],
+  ['Italian', 'friend', 'amico'],
+  ['Italian', 'house', 'casa'],
+  ['Italian', 'no', 'no'],
+  ['Italian', 'food', 'cibo'],
+  ['Italian', 'red', 'rosso'],
+  ['Italian', 'book', 'libro'],
+  ['Italian', 'happy', 'felice'],
+  ['Italian', 'time', 'tempo'],
+  ['Italian', 'apple', 'mela'],
+  // Russian
+  ['Russian', 'hello', 'privet'],
+  ['Russian', 'water', 'voda'],
+  ['Russian', 'thank you', 'spasibo'],
+  ['Russian', 'friend', 'drug'],
+  ['Russian', 'house', 'dom'],
+  ['Russian', 'no', 'nyet'],
+  ['Russian', 'food', 'yeda'],
+  ['Russian', 'red', 'krasnyy'],
+  ['Russian', 'book', 'kniga'],
+  ['Russian', 'happy', 'schastlivyy'],
+  ['Russian', 'time', 'vremya'],
+  ['Russian', 'big', 'bolshoy'],
+  // Japanese
+  ['Japanese', 'hello', 'konnichiha'],
+  ['Japanese', 'water', 'mizu'],
+  ['Japanese', 'thank you', 'arigatou'],
+  ['Japanese', 'friend', 'tomodachi'],
+  ['Japanese', 'house', 'ie'],
+  ['Japanese', 'no', 'iie'],
+  ['Japanese', 'food', 'tabemono'],
+  ['Japanese', 'red', 'aka'],
+  ['Japanese', 'book', 'hon'],
+  ['Japanese', 'happy', 'shiawase'],
+  ['Japanese', 'time', 'jikan'],
+  ['Japanese', 'big', 'ookii'],
+  // Chinese
+  ['Chinese', 'hello', 'nihao'],
+  ['Chinese', 'water', 'shui'],
+  ['Chinese', 'thank you', 'xiexie'],
+  ['Chinese', 'friend', 'pengyou'],
+  ['Chinese', 'house', 'fangzi'],
+  ['Chinese', 'no', 'bu'],
+  ['Chinese', 'food', 'shiwu'],
+  ['Chinese', 'red', 'hongse'],
+  ['Chinese', 'book', 'shu'],
+  ['Chinese', 'happy', 'kuaile'],
+  ['Chinese', 'time', 'shijian'],
+  ['Chinese', 'big', 'da'],
+  // Korean
+  ['Korean', 'hello', 'annyeonghaseyo'],
+  ['Korean', 'water', 'mul'],
+  ['Korean', 'thank you', 'gamsahamnida'],
+  ['Korean', 'friend', 'chingu'],
+  ['Korean', 'house', 'jip'],
+  ['Korean', 'no', 'aniyo'],
+  ['Korean', 'food', 'eumsik'],
+  ['Korean', 'red', 'ppalggang'],
+  ['Korean', 'book', 'chaek'],
+  ['Korean', 'happy', 'haengbok'],
+  ['Korean', 'time', 'sigan'],
+  ['Korean', 'big', 'keuda'],
+  // Arabic
+  ['Arabic', 'hello', 'marhaba'],
+  ['Arabic', 'water', 'maa'],
+  ['Arabic', 'thank you', 'shukran'],
+  ['Arabic', 'friend', 'sadeeq'],
+  ['Arabic', 'house', 'bayt'],
+  ['Arabic', 'no', 'la'],
+  ['Arabic', 'food', 'taam'],
+  ['Arabic', 'red', 'ahmar'],
+  ['Arabic', 'book', 'kitaab'],
+  ['Arabic', 'happy', 'saeed'],
+  ['Arabic', 'time', 'waqt'],
+  ['Arabic', 'big', 'kabir'],
+];
 
 export default function App() {
+  const [view, setView] = useState<View>('quest');
+  const [playerName, setPlayerName] = useState(() => localStorage.getItem('language-quest-player') || '');
+  const [selectedLessonPack, setSelectedLessonPack] = useState<LessonPackId | null>(null);
+  const [selectedLessonQuests, setSelectedLessonQuests] = useState<Quest[] | null>(null);
+  const [lessonStreakAwarded, setLessonStreakAwarded] = useState(false);
+  const [authName, setAuthName] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authMessage, setAuthMessage] = useState('');
+  const [authMode, setAuthMode] = useState<'login' | 'register' | null>(null);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [settings, setSettings] = useState<PlayerSettings>(() => {
+    const accounts = readAccounts();
+    const savedPlayer = localStorage.getItem('language-quest-player') || '';
+    return savedPlayer && accounts[savedPlayer] ? accounts[savedPlayer].settings : readJson(guestSettingsKey, defaultSettings);
+  });
+  const [selectedLanguage, setSelectedLanguage] = useState<Language>(() => {
+    const progress = readStoredProgress();
+    return progress.selectedLanguage;
+  });
+  const [questIndex, setQuestIndex] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.questIndex;
+  });
+  const [selected, setSelected] = useState<string | null>(null);
+  const [hearts, setHearts] = useState(() => {
+    const progress = readStoredProgress();
+    return getRefilledHeartState(progress).hearts;
+  });
+  const [heartRefillAt, setHeartRefillAt] = useState<number | null>(() => {
+    const progress = readStoredProgress();
+    return getRefilledHeartState(progress).heartRefillAt;
+  });
+  const [score, setScore] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.score;
+  });
+  const [streak, setStreak] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.streak;
+  });
+  const [xp, setXp] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.xp ?? defaultProgress.xp;
+  });
+  const [diamonds, setDiamonds] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.diamonds ?? defaultProgress.diamonds;
+  });
+  const [shopChests, setShopChests] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.shopChests ?? defaultProgress.shopChests;
+  });
+  const [rarityChests, setRarityChests] = useState(() => {
+    const progress = readStoredProgress();
+    return normalizeRarityInventory(progress.rarityChests);
+  });
+  const [streakFreezes, setStreakFreezes] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.streakFreezes ?? defaultProgress.streakFreezes;
+  });
+  const [lastDailyLessonDate, setLastDailyLessonDate] = useState<string | null>(() => {
+    const progress = readStoredProgress();
+    return progress.lastDailyLessonDate ?? defaultProgress.lastDailyLessonDate;
+  });
+  const [chestOpened, setChestOpened] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.chestOpened ?? defaultProgress.chestOpened;
+  });
+  const [showHint, setShowHint] = useState(false);
+  const [shopMessage, setShopMessage] = useState('');
+  const [rewardAnimation, setRewardAnimation] = useState('');
+  const [timeLeft, setTimeLeft] = useState(bossModeTimeLimit);
+  const [refillLabel, setRefillLabel] = useState(() => formatRefillTime(heartRefillAt));
+
+  const activeQuests = useMemo(() => {
+    if (selectedLessonQuests) {
+      return selectedLessonQuests;
+    }
+
+    const questPool = settings.hardMode ? hardLanguageQuests : quests;
+
+    if (selectedLanguage !== 'All') {
+      const filtered = questPool.filter((quest) => quest.language === selectedLanguage);
+      return filtered.length > 0 ? filtered : questPool;
+    }
+
+    return questPool;
+  }, [selectedLanguage, selectedLessonQuests, settings.hardMode]);
+  const activeWordbook = useMemo(() => {
+    const words = selectedLanguage === 'All' ? wordbook : wordbook.filter(([language]) => language === selectedLanguage);
+    const safeWords = words.length > 0 ? words : wordbook;
+    return settings.compactWordbook ? safeWords.slice(0, 10) : safeWords;
+  }, [selectedLanguage, settings.compactWordbook]);
+  const currentQuest = activeQuests[questIndex];
+  const currentOptions = useMemo(() => (currentQuest ? shuffleOptions(currentQuest.options) : []), [currentQuest]);
+  const isComplete = questIndex >= activeQuests.length;
+  const progress = activeQuests.length > 0 ? Math.round((questIndex / activeQuests.length) * 100) : 0;
+  const hardModeEnabled = settings.hardMode;
+  const bossModeEnabled = settings.bossMode;
+  const heartText = 'HP '.repeat(hearts).trim() || '0';
+  const refillText = hearts < maxHearts && heartRefillAt ? `+1 in ${refillLabel}` : 'Full';
+  const feedback = useMemo(() => {
+    if (!selected) return '';
+    return selected === currentQuest?.answer ? 'Correct. The path opens.' : 'Not quite. Try the hint and keep moving.';
+  }, [currentQuest?.answer, selected]);
+
+  useEffect(() => {
+    const safeQuestIndex = Math.min(questIndex, activeQuests.length);
+    const progress: PlayerProgress = {
+      selectedLanguage,
+      questIndex: safeQuestIndex,
+      hearts,
+      score,
+      streak,
+      xp,
+      diamonds,
+      shopChests,
+      rarityChests,
+      streakFreezes,
+      lastDailyLessonDate,
+      chestOpened,
+      heartRefillAt,
+    };
+
+    if (playerName) {
+      const accounts = readAccounts();
+      if (accounts[playerName]) {
+        accounts[playerName] = { ...accounts[playerName], progress, settings };
+        writeAccounts(accounts);
+      }
+      localStorage.setItem('language-quest-player', playerName);
+      return;
+    }
+
+    localStorage.removeItem('language-quest-player');
+    localStorage.setItem(guestProgressKey, JSON.stringify(progress));
+    localStorage.setItem(guestSettingsKey, JSON.stringify(settings));
+  }, [activeQuests.length, chestOpened, diamonds, heartRefillAt, hearts, lastDailyLessonDate, playerName, questIndex, rarityChests, score, selectedLanguage, settings, shopChests, streak, streakFreezes, xp]);
+
+  useEffect(() => {
+    if (questIndex > activeQuests.length) {
+      setQuestIndex(activeQuests.length);
+    }
+  }, [activeQuests.length, questIndex]);
+
+  useEffect(() => {
+    if (!selectedLessonPack || !isComplete || lessonStreakAwarded) {
+      return;
+    }
+
+    completeDailyLesson();
+    setLessonStreakAwarded(true);
+  }, [isComplete, lessonStreakAwarded, selectedLessonPack]);
+
+  useEffect(() => {
+    if (!saveMessage) return;
+
+    const timeoutId = window.setTimeout(() => setSaveMessage(''), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [saveMessage]);
+
+  useEffect(() => {
+    if (!rewardAnimation) return;
+
+    const timeoutId = window.setTimeout(() => setRewardAnimation(''), 2200);
+    return () => window.clearTimeout(timeoutId);
+  }, [rewardAnimation]);
+
+  useEffect(() => {
+    if (!bossModeEnabled || isComplete || selected || view !== 'quest') {
+      return;
+    }
+
+    if (timeLeft <= 0) {
+      loseHearts(1);
+      setShowHint(false);
+      setSelected(null);
+      setQuestIndex((value) => value + 1);
+      setTimeLeft(bossModeTimeLimit);
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      setTimeLeft((value) => value - 1);
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [bossModeEnabled, isComplete, selected, view, timeLeft, questIndex]);
+
+  useEffect(() => {
+    if (!heartRefillAt) {
+      setRefillLabel('');
+      return;
+    }
+
+    setRefillLabel(formatRefillTime(heartRefillAt));
+
+    const timerId = window.setInterval(() => {
+      setRefillLabel(formatRefillTime(heartRefillAt));
+      const refilled = getRefilledHeartState({ ...getCurrentProgress(), hearts, heartRefillAt });
+
+      if (refilled.hearts !== hearts) {
+        setHearts(refilled.hearts);
+      }
+
+      if (refilled.heartRefillAt !== heartRefillAt) {
+        setHeartRefillAt(refilled.heartRefillAt);
+      }
+    }, 1000);
+
+    return () => window.clearInterval(timerId);
+  }, [heartRefillAt]);
+
+  useEffect(() => {
+    const refilled = getRefilledHeartState({ ...getCurrentProgress(), hearts, heartRefillAt });
+
+    if (refilled.hearts !== hearts) {
+      setHearts(refilled.hearts);
+    }
+
+    if (refilled.heartRefillAt !== heartRefillAt) {
+      setHeartRefillAt(refilled.heartRefillAt);
+    }
+  }, [heartRefillAt, hearts]);
+
+  useEffect(() => {
+    // (removed) automatic restart when hearts reach zero — keep player in current run
+  }, [/* hearts, isComplete, view (no-op) */]);
+
+  function getCurrentProgress(): PlayerProgress {
+    return {
+      selectedLanguage,
+      questIndex: Math.min(questIndex, activeQuests.length),
+      hearts,
+      score,
+      streak,
+      xp,
+      diamonds,
+      shopChests,
+      rarityChests,
+      streakFreezes,
+      lastDailyLessonDate,
+      chestOpened,
+      heartRefillAt,
+    };
+  }
+
+  function saveGame() {
+    const progress = getCurrentProgress();
+
+    if (playerName) {
+      const accounts = readAccounts();
+      if (accounts[playerName]) {
+        accounts[playerName] = { ...accounts[playerName], progress, settings };
+        writeAccounts(accounts);
+        localStorage.setItem('language-quest-player', playerName);
+        setSaveMessage(`Saved ${playerName}'s game.`);
+        return;
+      }
+    }
+
+    localStorage.setItem(guestProgressKey, JSON.stringify(progress));
+    localStorage.setItem(guestSettingsKey, JSON.stringify(settings));
+    setSaveMessage('Saved guest game.');
+  }
+
+  function resetRun(restoreHearts = false) {
+    setQuestIndex(0);
+    setSelected(null);
+    if (restoreHearts) {
+      setHearts(maxHearts);
+      setHeartRefillAt(null);
+    }
+    setScore(0);
+    setLessonStreakAwarded(false);
+    setChestOpened(false);
+    setShowHint(false);
+    setTimeLeft(bossModeTimeLimit);
+  }
+
+  function chooseOption(option: string) {
+    if (selected || isComplete || !currentQuest) return;
+
+    setSelected(option);
+
+    if (option === currentQuest.answer) {
+      const multiplier = bossModeEnabled ? 2 : 1;
+      const rewardMultiplier = hardModeEnabled || bossModeEnabled ? 5 : 1;
+      setScore((value) => value + (100 + streak * 20) * multiplier);
+      if (Math.random() < 0.5) {
+        setXp((value) => value + 20 * rewardMultiplier);
+      } else {
+        setDiamonds((value) => value + 10 * rewardMultiplier);
+      }
+      
+      // Previously: +1 heart after 3 consecutive correct answers (removed)
+      return;
+    }
+
+    loseHearts(hardModeEnabled ? 2 : 1);
+    // counter removed
+  }
+
+  function loseHearts(amount: number) {
+    setHearts((value) => {
+      const nextHearts = Math.max(0, value - amount);
+      if (nextHearts < maxHearts) {
+        setHeartRefillAt((currentRefillAt) => currentRefillAt ?? Date.now() + heartRefillMs);
+      }
+      return nextHearts;
+    });
+  }
+
+  function watchAdToLoseHeart() {
+    loseHearts(1);
+  }
+
+  function completeDailyLesson() {
+    const today = getLocalDateKey();
+    if (lastDailyLessonDate === today) {
+      setRewardAnimation('Lesson complete');
+      return;
+    }
+
+    setStreak((value) => value + 1);
+    setLastDailyLessonDate(today);
+    setRewardAnimation('Daily lesson complete +1 streak');
+  }
+
+  function awardRarityChest() {
+    const rarity = getRandomChestRarity();
+    setRarityChests((inventory) => ({
+      ...inventory,
+      [rarity]: inventory[rarity] + 1,
+    }));
+    return rarity;
+  }
+
+  function openChest() {
+    if (!isComplete || chestOpened) return;
+
+    const rarity = awardRarityChest();
+    setShopMessage(`Reward chest gave you a ${rarity} chest.`);
+    setRewardAnimation(`${rarity} chest unlocked`);
+    setChestOpened(true);
+  }
+
+  function completeSpeakingTraining() {
+    const rarity = awardRarityChest();
+    setShopMessage(`Speaking training gave you a ${rarity} chest.`);
+    setRewardAnimation(`You did it + ${rarity} chest`);
+  }
+
+  function buyShopChest(currency: 'xp' | 'diamonds') {
+    if (currency === 'xp') {
+      if (xp < shopChestXpCost) {
+        setShopMessage(`Need ${shopChestXpCost} XP to buy this chest.`);
+        return;
+      }
+
+      setXp((value) => value - shopChestXpCost);
+    } else {
+      if (diamonds < shopChestDiamondCost) {
+        setShopMessage(`Need ${shopChestDiamondCost} diamonds to buy this chest.`);
+        return;
+      }
+
+      setDiamonds((value) => value - shopChestDiamondCost);
+    }
+
+    setShopChests((value) => value + 1);
+    setShopMessage('Chest added to your shop inventory.');
+  }
+
+  function buyStreakFreeze(currency: 'xp' | 'diamonds') {
+    if (currency === 'xp') {
+      if (xp < streakFreezeXpCost) {
+        setShopMessage(`Need ${streakFreezeXpCost} XP to buy a streak freeze.`);
+        return;
+      }
+
+      setXp((value) => value - streakFreezeXpCost);
+    } else {
+      if (diamonds < streakFreezeDiamondCost) {
+        setShopMessage(`Need ${streakFreezeDiamondCost} diamonds to buy a streak freeze.`);
+        return;
+      }
+
+      setDiamonds((value) => value - streakFreezeDiamondCost);
+    }
+
+    setStreakFreezes((value) => value + 1);
+    setShopMessage('Streak freeze added.');
+  }
+
+  function exchangeCurrency(type: 'diamonds-to-xp' | 'xp-to-diamonds') {
+    if (type === 'diamonds-to-xp') {
+      if (diamonds < xpBundleDiamondCost) {
+        setShopMessage(`Need ${xpBundleDiamondCost} diamonds to get ${xpBundleReward} XP.`);
+        return;
+      }
+
+      setDiamonds((value) => value - xpBundleDiamondCost);
+      setXp((value) => value + xpBundleReward);
+      setShopMessage(`Exchanged ${xpBundleDiamondCost} diamonds for ${xpBundleReward} XP.`);
+      return;
+    }
+
+    if (xp < diamondBundleXpCost) {
+      setShopMessage(`Need ${diamondBundleXpCost} XP to get ${diamondBundleReward} diamonds.`);
+      return;
+    }
+
+    setXp((value) => value - diamondBundleXpCost);
+    setDiamonds((value) => value + diamondBundleReward);
+    setShopMessage(`Exchanged ${diamondBundleXpCost} XP for ${diamondBundleReward} diamonds.`);
+  }
+
+  function openShopChest() {
+    if (shopChests <= 0) {
+      setShopMessage('Buy a chest first.');
+      return;
+    }
+
+    setShopChests((value) => value - 1);
+    const rarity = awardRarityChest();
+    setShopMessage(`Shop chest gave you a ${rarity} chest.`);
+    setRewardAnimation(`${rarity} chest unlocked`);
+  }
+
+  function openRarityChest(rarity: ChestRarity) {
+    if (rarityChests[rarity] <= 0) return;
+
+    const reward = rarityRewards[rarity];
+    const prize = getRandomChestPrize(reward);
+    setRarityChests((inventory) => ({
+      ...inventory,
+      [rarity]: inventory[rarity] - 1,
+    }));
+
+    if (prize.kind === 'xp') {
+      setXp((value) => value + prize.amount);
+    } else if (prize.kind === 'diamonds') {
+      setDiamonds((value) => value + prize.amount);
+    } else {
+      setStreakFreezes((value) => value + prize.amount);
+    }
+
+    setShopMessage(`${rarity} chest gave ${prize.label}.`);
+    setRewardAnimation(`+${prize.label}`);
+  }
+
+  function nextQuest() {
+    if (!selected) return;
+    setQuestIndex((value) => value + 1);
+    setSelected(null);
+    setShowHint(false);
+    setTimeLeft(bossModeTimeLimit);
+  }
+
+  function restartQuest() {
+    resetRun(false);
+  }
+
+  function startNewQuest() {
+    setSelectedLessonPack(null);
+    setSelectedLessonQuests(null);
+    resetRun(true);
+    setView('quest');
+  }
+
+  function chooseLanguage(language: Language) {
+    setSelectedLessonPack(null);
+    setSelectedLessonQuests(null);
+    setSelectedLanguage(language);
+    resetRun();
+  }
+
+  function startLanguageQuest(language: Exclude<Language, 'All'>) {
+    chooseLanguage(language);
+    setView('quest');
+  }
+
+  function startLessonPack(packId: LessonPackId) {
+    setSelectedLessonPack(packId);
+    setSelectedLessonQuests(getRandomLessonQuestions(packId, settings.hardMode));
+    setSelectedLanguage('All');
+    resetRun();
+    setView('quest');
+  }
+
+  function applyProgress(progress: PlayerProgress, nextSettings: PlayerSettings) {
+    const dailyCheckedProgress = getDailyCheckedProgress(progress);
+    const refilled = getRefilledHeartState(dailyCheckedProgress);
+
+    setSelectedLanguage(dailyCheckedProgress.selectedLanguage);
+    setQuestIndex(dailyCheckedProgress.questIndex);
+    setHearts(refilled.hearts);
+    setHeartRefillAt(refilled.heartRefillAt);
+    setScore(dailyCheckedProgress.score);
+    setStreak(dailyCheckedProgress.streak);
+    setXp(dailyCheckedProgress.xp ?? defaultProgress.xp);
+    setDiamonds(dailyCheckedProgress.diamonds ?? defaultProgress.diamonds);
+    setShopChests(dailyCheckedProgress.shopChests ?? defaultProgress.shopChests);
+    setRarityChests(normalizeRarityInventory(dailyCheckedProgress.rarityChests));
+    setStreakFreezes(dailyCheckedProgress.streakFreezes ?? defaultProgress.streakFreezes);
+    setLastDailyLessonDate(dailyCheckedProgress.lastDailyLessonDate ?? defaultProgress.lastDailyLessonDate);
+    setChestOpened(dailyCheckedProgress.chestOpened ?? defaultProgress.chestOpened);
+    setSettings(nextSettings);
+    setSelected(null);
+    setShowHint(false);
+    setTimeLeft(bossModeTimeLimit);
+  }
+
+  function clearAuthForm() {
+    setAuthName('');
+    setAuthPassword('');
+    setAuthMessage('');
+    setAuthMode(null);
+  }
+
+  function handleLogin(event: FormEvent) {
+    event.preventDefault();
+    const name = authName.trim();
+    const accounts = readAccounts();
+
+    if (!accounts[name] || accounts[name].password !== authPassword) {
+      setAuthMessage('Player name or password is wrong.');
+      return;
+    }
+
+    setPlayerName(name);
+    applyProgress(accounts[name].progress, accounts[name].settings);
+    clearAuthForm();
+    setView('quest');
+  }
+
+  function handleRegister(event: FormEvent) {
+    event.preventDefault();
+    const name = authName.trim();
+    const accounts = readAccounts();
+
+    if (name.length < 2) {
+      setAuthMessage('Use at least 2 characters for the player name.');
+      return;
+    }
+
+    if (authPassword.length < 4) {
+      setAuthMessage('Use at least 4 characters for the password.');
+      return;
+    }
+
+    if (accounts[name]) {
+      setAuthMessage('That player already exists. Try logging in.');
+      return;
+    }
+
+    const progress: PlayerProgress = {
+      selectedLanguage,
+      questIndex,
+      hearts,
+      score,
+      streak,
+      xp,
+      diamonds,
+      shopChests,
+      rarityChests,
+      streakFreezes,
+      lastDailyLessonDate,
+      chestOpened,
+      heartRefillAt,
+    };
+
+    accounts[name] = {
+      password: authPassword,
+      progress,
+      settings,
+    };
+    writeAccounts(accounts);
+    setPlayerName(name);
+    clearAuthForm();
+    setView('quest');
+  }
+
+  function logout() {
+    setPlayerName('');
+    applyProgress(readJson(guestProgressKey, defaultProgress), readJson(guestSettingsKey, defaultSettings));
+    setView('quest');
+  }
+
+  function clearSavedProgress() {
+    resetRun();
+    setStreak(defaultProgress.streak);
+    setXp(defaultProgress.xp);
+    setDiamonds(defaultProgress.diamonds);
+    setShopChests(defaultProgress.shopChests);
+    setRarityChests(defaultProgress.rarityChests);
+    setStreakFreezes(defaultProgress.streakFreezes);
+    setLastDailyLessonDate(defaultProgress.lastDailyLessonDate);
+    setChestOpened(defaultProgress.chestOpened);
+
+    if (!playerName) {
+      localStorage.setItem(guestProgressKey, JSON.stringify(defaultProgress));
+      return;
+    }
+
+    const accounts = readAccounts();
+    if (accounts[playerName]) {
+      accounts[playerName] = { ...accounts[playerName], progress: defaultProgress };
+      writeAccounts(accounts);
+    }
+  }
+
   return (
-    <main className="container">
-      <section className="hello">
-        <h1>Привет! 🚀</h1>
-        <p>Это твой проект. Пока тут пусто — самое интересное впереди.</p>
-        <p className="hello__hint">
-          Открой Codex и опиши свою идею — этот экран станет твоим приложением.
+    <main className="game-shell">
+      {rewardAnimation && (
+        <div className="reward-pop" role="status" aria-live="polite">
+          <span>{rewardAnimation}</span>
+        </div>
+      )}
+      <section className="quest-panel" aria-label="Language Quest">
+        <div className="topbar">
+          <div>
+            <p className="eyebrow">Language Quest</p>
+            <h1>Word trail</h1>
+          </div>
+          <button className="icon-button" type="button" onClick={restartQuest} aria-label="Restart quest" title="Restart">
+            <RotateCcw aria-hidden="true" size={22} strokeWidth={2.4} />
+          </button>
+        </div>
+
+        <nav className="main-menu" aria-label="Main menu">
+          <button className={view === 'start' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('start')}>
+            <ButtonLabel icon={Home}>Start</ButtonLabel>
+          </button>
+          <button className={view === 'quest' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('quest')}>
+            <ButtonLabel icon={Play}>Play</ButtonLabel>
+          </button>
+          <button className={view === 'languages' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('languages')}>
+            <ButtonLabel icon={Globe2}>Languages</ButtonLabel>
+          </button>
+          <button className={view === 'lessons' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('lessons')}>
+            <ButtonLabel icon={GraduationCap}>Lessons</ButtonLabel>
+          </button>
+          <button className={view === 'shop' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('shop')}>
+            <ButtonLabel icon={ShoppingBag}>Shop</ButtonLabel>
+          </button>
+          {playerName ? (
+            <button className="menu-button" type="button" onClick={logout}>
+              <ButtonLabel icon={LogOut}>Logout</ButtonLabel>
+            </button>
+          ) : (
+            <>
+              <button className={view === 'login' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('login')}>
+                <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+              </button>
+              <button className={view === 'register' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('register')}>
+                <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
+              </button>
+            </>
+          )}
+          <button className={view === 'settings' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('settings')}>
+            <ButtonLabel icon={Settings}>Settings</ButtonLabel>
+          </button>
+          <button className="menu-button" type="button" onClick={saveGame}>
+            <ButtonLabel icon={Save}>Save game</ButtonLabel>
+          </button>
+        </nav>
+
+        <p className="player-line">
+          {playerName ? `Playing as ${playerName}. Progress saves to this profile.` : 'Playing as Guest. Progress saves on this device.'}
         </p>
+        {saveMessage && <p className="save-line">{saveMessage}</p>}
+
+        {view === 'start' && (
+          <section className="menu-panel start-panel" aria-label="Start menu">
+            <p className="eyebrow">Welcome</p>
+            <h2>Begin your language journey.</h2>
+            <p className="start-copy">Choose a world and follow the word trail. Save your progress with a profile or continue as guest.</p>
+            <div className="start-actions">
+              <button type="button" onClick={startNewQuest}>
+                <ButtonLabel icon={Gamepad2}>Play now</ButtonLabel>
+              </button>
+              <button type="button" onClick={() => setView('lessons')}>
+                <ButtonLabel icon={GraduationCap}>Lessons</ButtonLabel>
+              </button>
+              <button type="button" onClick={() => setView('languages')}>
+                <ButtonLabel icon={Globe2}>Languages</ButtonLabel>
+              </button>
+              <button type="button" onClick={() => setView('shop')}>
+                <ButtonLabel icon={ShoppingBag}>Shop</ButtonLabel>
+              </button>
+              <button type="button" onClick={() => setView('login')}>
+                <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+              </button>
+              <button type="button" onClick={() => setView('register')}>
+                <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
+              </button>
+            </div>
+          </section>
+        )}
+
+        {view === 'languages' && (
+          <section className="menu-panel language-panel" aria-label="Languages">
+            <p className="eyebrow">Languages</p>
+            <h2>Choose your language</h2>
+            <p className="start-copy">Pick a language to see its practice path, start a random quest, or open its lessons.</p>
+            <div className="language-grid">
+              {languageCards.map((card) => (
+                <article className="language-card" key={card.language}>
+                  <div>
+                    <strong>{card.language}</strong>
+                    <p>{card.questionCount} questions ready</p>
+                  </div>
+                  <span>{card.lessonCount} lesson packs</span>
+                  <div className="language-card-actions">
+                    <button type="button" onClick={() => startLanguageQuest(card.language)}>
+                      <ButtonLabel icon={Play}>Play</ButtonLabel>
+                    </button>
+                    <button className="secondary" type="button" onClick={() => startLessonPack(card.randomPackId)}>
+                      <ButtonLabel icon={BookOpen}>10 questions</ButtonLabel>
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {view === 'lessons' && (
+          <section className="menu-panel" aria-label="Lessons">
+            <p className="eyebrow">Lessons</p>
+            <h2>Choose a lesson pack</h2>
+            <p className="start-copy">Pick a themed set of 10 questions to practice vocabulary in a focused way.</p>
+            <label className="toggle-row" style={{ marginBottom: '1rem' }}>
+              <span>
+                <strong>Hard mode</strong>
+                <small>No hints and tougher penalties for mistakes.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.hardMode}
+                onChange={(event) => setSettings((value) => ({ ...value, hardMode: event.target.checked }))}
+              />
+            </label>
+            <label className="toggle-row" style={{ marginBottom: '1rem' }}>
+              <span>
+                <strong>Boss mode</strong>
+                <small>Beat the clock and earn double points.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.bossMode}
+                onChange={(event) => setSettings((value) => ({ ...value, bossMode: event.target.checked }))}
+              />
+            </label>
+            <div className="speaking-card">
+              <strong>Speaking practice</strong>
+              <p>Use Speaking Trainer to practice real phrases with translations, pronunciation, and word-by-word meaning.</p>
+            </div>
+            <AITutor languages={playableLanguageOptions} onTrainingComplete={completeSpeakingTraining} />
+            <div className="start-actions" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              {lessonPacks.map((lessonPack) => (
+                <div key={lessonPack.id} className="card" style={{ padding: '1rem' }}>
+                  <div style={{ marginBottom: '0.75rem' }}>
+                    <strong>{lessonPack.title}</strong>
+                    <p style={{ margin: '0.25rem 0 0', color: '#5f6b7a' }}>{lessonPack.description}</p>
+                    <small style={{ color: '#5f6b7a', fontWeight: 800 }}>{lessonPack.size ?? defaultLessonQuestionCount} questions</small>
+                  </div>
+                  <button type="button" onClick={() => startLessonPack(lessonPack.id)}>
+                    <ButtonLabel icon={Play}>Start {lessonPack.title}</ButtonLabel>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {view === 'shop' && (
+          <section className="menu-panel" aria-label="Shop">
+            <p className="eyebrow">Shop</p>
+            <h2>Chest shop</h2>
+            <p className="start-copy">Spend your rewards on a shop chest. Open it for a random prize.</p>
+
+            <div className="shop-wallet" aria-label="Wallet">
+              <span>XP: <strong>{xp}</strong></span>
+              <span>Diamonds: <strong>{diamonds}</strong></span>
+              <span>Chests: <strong>{shopChests}</strong></span>
+              <span>Freezes: <strong>{streakFreezes}</strong></span>
+            </div>
+
+            <div className="rarity-inventory" aria-label="Rarity chest inventory">
+              {chestRarities.map((rarity) => {
+                const reward = rarityRewards[rarity];
+
+                return (
+                  <div key={rarity} className="rarity-card">
+                    <strong>{rarity}</strong>
+                    <span>Owned: {rarityChests[rarity]}</span>
+                    <small>
+                      One prize: {reward.xp} XP or {reward.diamonds} diamonds{reward.freezes ? ` or ${reward.freezes} freezes` : ''}
+                    </small>
+                    <button type="button" onClick={() => openRarityChest(rarity)} disabled={rarityChests[rarity] <= 0}>
+                      <ButtonLabel icon={PackageOpen}>Open</ButtonLabel>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="shop-item">
+              <div>
+                <strong>Shop chest</strong>
+                <p>Costs {shopChestXpCost} XP or {shopChestDiamondCost} diamonds.</p>
+              </div>
+              <div className="shop-actions">
+                <button type="button" onClick={() => buyShopChest('xp')} disabled={xp < shopChestXpCost}>
+                  <ButtonLabel icon={Coins}>Buy for {shopChestXpCost} XP</ButtonLabel>
+                </button>
+                <button type="button" onClick={() => buyShopChest('diamonds')} disabled={diamonds < shopChestDiamondCost}>
+                  <ButtonLabel icon={Diamond}>Buy for {shopChestDiamondCost} diamonds</ButtonLabel>
+                </button>
+                <button type="button" onClick={openShopChest} disabled={shopChests <= 0}>
+                  <ButtonLabel icon={Gift}>Open chest</ButtonLabel>
+                </button>
+              </div>
+            </div>
+
+            <div className="shop-item">
+              <div>
+                <strong>Currency exchange</strong>
+                <p>Trade rewards when you need more XP or diamonds.</p>
+              </div>
+              <div className="shop-actions">
+                <button type="button" onClick={() => exchangeCurrency('diamonds-to-xp')} disabled={diamonds < xpBundleDiamondCost}>
+                  <ButtonLabel icon={Coins}>{xpBundleDiamondCost} diamonds = {xpBundleReward} XP</ButtonLabel>
+                </button>
+                <button type="button" onClick={() => exchangeCurrency('xp-to-diamonds')} disabled={xp < diamondBundleXpCost}>
+                  <ButtonLabel icon={Diamond}>{diamondBundleXpCost} XP = {diamondBundleReward} diamonds</ButtonLabel>
+                </button>
+              </div>
+            </div>
+
+            <div className="shop-item">
+              <div>
+                <strong>Streak freeze</strong>
+                <p>Saves your streak if you miss one daily lesson.</p>
+              </div>
+              <div className="shop-actions">
+                <button type="button" onClick={() => buyStreakFreeze('xp')} disabled={xp < streakFreezeXpCost}>
+                  <ButtonLabel icon={Coins}>Buy for {streakFreezeXpCost} XP</ButtonLabel>
+                </button>
+                <button type="button" onClick={() => buyStreakFreeze('diamonds')} disabled={diamonds < streakFreezeDiamondCost}>
+                  <ButtonLabel icon={Diamond}>Buy for {streakFreezeDiamondCost} diamonds</ButtonLabel>
+                </button>
+              </div>
+            </div>
+
+            {shopMessage && <p className="save-line">{shopMessage}</p>}
+          </section>
+        )}
+
+        {view === 'login' && (
+          <section className="menu-panel" aria-label="Login">
+            <p className="eyebrow">Login</p>
+            <h2>Continue your quest.</h2>
+            <form className="auth-form" onSubmit={handleLogin}>
+              <label>
+                Player name
+                <input value={authName} onChange={(event) => setAuthName(event.target.value)} autoComplete="username" required />
+              </label>
+              <label>
+                Password
+                <input
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                />
+              </label>
+              <button type="submit">
+                <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+              </button>
+            </form>
+            {authMessage && <p className="feedback">{authMessage}</p>}
+          </section>
+        )}
+
+        {view === 'register' && (
+          <section className="menu-panel" aria-label="Register">
+            <p className="eyebrow">Register</p>
+            <h2>Create a player.</h2>
+            <form className="auth-form" onSubmit={handleRegister}>
+              <label>
+                Player name
+                <input value={authName} onChange={(event) => setAuthName(event.target.value)} autoComplete="username" required />
+              </label>
+              <label>
+                Password
+                <input
+                  value={authPassword}
+                  onChange={(event) => setAuthPassword(event.target.value)}
+                  type="password"
+                  autoComplete="new-password"
+                  minLength={4}
+                  required
+                />
+              </label>
+              <button type="submit">
+                <ButtonLabel icon={UserPlus}>Create account</ButtonLabel>
+              </button>
+            </form>
+            {authMessage && <p className="feedback">{authMessage}</p>}
+          </section>
+        )}
+
+        {view === 'settings' && (
+          <section className="menu-panel" aria-label="Settings">
+            <p className="eyebrow">Settings</p>
+            <h2>Player options</h2>
+
+            <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+              <p style={{ margin: '0 0 0.5rem', fontWeight: 700 }}>Account</p>
+              {playerName ? (
+                <>
+                  <p style={{ margin: '0 0 0.75rem' }}>Signed in as {playerName}.</p>
+                  <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
+                    <button type="button" onClick={saveGame}>
+                      <ButtonLabel icon={Save}>Save game</ButtonLabel>
+                    </button>
+                    <button type="button" onClick={logout}>
+                      <ButtonLabel icon={LogOut}>Logout</ButtonLabel>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p style={{ margin: '0 0 0.75rem' }}>Create a profile or keep playing as a guest.</p>
+                  <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
+                    <button type="button" onClick={() => setAuthMode('login')}>
+                      <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+                    </button>
+                    <button type="button" onClick={() => setAuthMode('register')}>
+                      <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
+                    </button>
+                    <button type="button" onClick={saveGame}>
+                      <ButtonLabel icon={Save}>Save game</ButtonLabel>
+                    </button>
+                  </div>
+                </>
+              )}
+
+              {authMode === 'login' && (
+                <form className="auth-form" onSubmit={handleLogin} style={{ marginTop: '1rem' }}>
+                  <label>
+                    Player name
+                    <input value={authName} onChange={(event) => setAuthName(event.target.value)} autoComplete="username" required />
+                  </label>
+                  <label>
+                    Password
+                    <input
+                      value={authPassword}
+                      onChange={(event) => setAuthPassword(event.target.value)}
+                      type="password"
+                      autoComplete="current-password"
+                      required
+                    />
+                  </label>
+                  <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
+                    <button type="submit">
+                      <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+                    </button>
+                    <button type="button" className="ghost" onClick={() => setAuthMode(null)}>
+                      <ButtonLabel icon={X}>Cancel</ButtonLabel>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {authMode === 'register' && (
+                <form className="auth-form" onSubmit={handleRegister} style={{ marginTop: '1rem' }}>
+                  <label>
+                    Player name
+                    <input value={authName} onChange={(event) => setAuthName(event.target.value)} autoComplete="username" required />
+                  </label>
+                  <label>
+                    Password
+                    <input
+                      value={authPassword}
+                      onChange={(event) => setAuthPassword(event.target.value)}
+                      type="password"
+                      autoComplete="new-password"
+                      minLength={4}
+                      required
+                    />
+                  </label>
+                  <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
+                    <button type="submit">
+                      <ButtonLabel icon={UserPlus}>Create account</ButtonLabel>
+                    </button>
+                    <button type="button" className="ghost" onClick={() => setAuthMode(null)}>
+                      <ButtonLabel icon={X}>Cancel</ButtonLabel>
+                    </button>
+                  </div>
+                </form>
+              )}
+
+              {authMessage && <p className="feedback">{authMessage}</p>}
+            </div>
+
+            <DesignEditor />
+
+            <label className="toggle-row">
+              <span>
+                <strong><StatLabel icon={Volume2}>Sound</StatLabel></strong>
+                <small>Keep feedback sounds ready for later.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.sound}
+                onChange={(event) => setSettings((value) => ({ ...value, sound: event.target.checked }))}
+              />
+            </label>
+            <label className="toggle-row">
+              <span>
+                <strong><StatLabel icon={ListCollapse}>Compact wordbook</StatLabel></strong>
+                <small>Show a shorter study list.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.compactWordbook}
+                onChange={(event) => setSettings((value) => ({ ...value, compactWordbook: event.target.checked }))}
+              />
+            </label>
+            <label className="toggle-row">
+              <span>
+                <strong><StatLabel icon={Lock}>Hard mode</StatLabel></strong>
+                <small>No hints and tougher penalties for mistakes.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.hardMode}
+                onChange={(event) => setSettings((value) => ({ ...value, hardMode: event.target.checked }))}
+              />
+            </label>
+            <label className="toggle-row">
+              <span>
+                <strong><StatLabel icon={Timer}>Boss mode</StatLabel></strong>
+                <small>Beat the clock and earn double points.</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={settings.bossMode}
+                onChange={(event) => setSettings((value) => ({ ...value, bossMode: event.target.checked }))}
+              />
+            </label>
+            <button className="danger-button" type="button" onClick={clearSavedProgress}>
+              <ButtonLabel icon={RotateCcw}>Reset saved progress</ButtonLabel>
+            </button>
+          </section>
+        )}
+
+        {view === 'quest' && (
+          <>
+        <section className="instructions" aria-label="How to play">
+          <div>
+            <p className="eyebrow">Quick start</p>
+            <h2>How to play</h2>
+          </div>
+          <ul>
+            <li><StatLabel icon={Globe2}>Choose a language or keep All for mixed practice.</StatLabel></li>
+            <li><StatLabel icon={Check}>Pick the correct answer, then press Continue.</StatLabel></li>
+            <li><StatLabel icon={GraduationCap}>Use Lessons for focused 10-question practice.</StatLabel></li>
+            <li><StatLabel icon={Gift}>Complete quests to earn chests, XP, and diamonds.</StatLabel></li>
+          </ul>
+        </section>
+        <div className="stats" aria-label="Quest stats">
+          <div>
+            <StatLabel icon={Trophy}>Score</StatLabel>
+            <strong>{score}</strong>
+          </div>
+          <div>
+            <StatLabel icon={Heart}>Hearts</StatLabel>
+            <strong>{heartText}</strong>
+            <small>{refillText}</small>
+          </div>
+          <div>
+            <StatLabel icon={Flame}>Streak</StatLabel>
+            <strong>{streak}</strong>
+            <small>Freezes: {streakFreezes}</small>
+          </div>
+          <div>
+            <StatLabel icon={Sparkles}>XP</StatLabel>
+            <strong>{xp}</strong>
+          </div>
+          <div>
+            <StatLabel icon={Gem}>Diamonds</StatLabel>
+            <strong>{diamonds}</strong>
+          </div>
+          <div>
+            <StatLabel icon={Timer}>Time</StatLabel>
+            <strong>{bossModeEnabled ? formatTimer(timeLeft) : '∞'}</strong>
+          </div>
+        </div>
+
+        <div className="language-tabs" aria-label="Language filter">
+          {playableLanguageOptions.map((language) => (
+            <button
+              className={language === selectedLanguage ? 'language-tab language-tab--active' : 'language-tab'}
+              type="button"
+              key={language}
+              onClick={() => chooseLanguage(language)}
+            >
+              <ButtonLabel icon={Globe2}>{language}</ButtonLabel>
+            </button>
+          ))}
+        </div>
+
+        <div className="progress" aria-label={`Progress ${progress}%`}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
+
+        {isComplete ? (
+          <div className="victory">
+            <p className="eyebrow">Quest complete</p>
+            <h2>You cleared the trail.</h2>
+            <p>Your final score is {score}. Review the wordbook or restart for a cleaner run.</p>
+            <div className="chest-reward">
+              <strong>{chestOpened ? 'Chest opened' : 'Reward chest'}</strong>
+              <span>{chestOpened ? 'A rarity chest was added to your inventory.' : 'Open it to collect a rarity chest.'}</span>
+              <button type="button" onClick={openChest} disabled={chestOpened}>
+                <ButtonLabel icon={chestOpened ? Check : Gift}>{chestOpened ? 'Claimed' : 'Open chest'}</ButtonLabel>
+              </button>
+            </div>
+            <button type="button" onClick={restartQuest}>
+              <ButtonLabel icon={RotateCcw}>Play again</ButtonLabel>
+            </button>
+          </div>
+        ) : (
+          <div className="challenge">
+            <div className="map-row">
+              {activeQuests.map((quest, index) => (
+                <span
+                  className={index === questIndex ? 'map-dot map-dot--active' : index < questIndex ? 'map-dot map-dot--done' : 'map-dot'}
+                  key={quest.world}
+                  title={quest.world}
+                />
+              ))}
+            </div>
+
+            <p className="world">{currentQuest.world}</p>
+            <p className="quest-count">{currentQuest.language} quest {questIndex + 1} of {activeQuests.length}</p>
+            <h2>{currentQuest.prompt}</h2>
+
+            <div className="answers">
+              {currentOptions.map((option) => {
+                const isRight = option === currentQuest.answer;
+                const isPicked = option === selected;
+                const className = [
+                  'answer',
+                  selected && isRight ? 'answer--right' : '',
+                  isPicked && !isRight ? 'answer--wrong' : '',
+                ].join(' ');
+
+                return (
+                  <button className={className} type="button" key={option} onClick={() => chooseOption(option)}>
+                    {option}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="quest-actions">
+              {!hardModeEnabled ? (
+                <button className="secondary" type="button" onClick={() => setShowHint((value) => !value)}>
+                  <ButtonLabel icon={CircleHelp}>Hint</ButtonLabel>
+                </button>
+              ) : (
+                <span className="feedback" style={{ marginRight: '0.75rem' }}>Hints are off in hard mode.</span>
+              )}
+              <button className="secondary" type="button" onClick={watchAdToLoseHeart} disabled={hearts <= 0}>
+                <ButtonLabel icon={HeartMinus}>-1 heart by ad</ButtonLabel>
+              </button>
+              <button type="button" onClick={nextQuest} disabled={!selected}>
+                <ButtonLabel icon={ArrowRight}>Continue</ButtonLabel>
+              </button>
+            </div>
+
+            {(showHint || feedback) && (
+              <p className={selected === currentQuest.answer ? 'feedback feedback--good' : 'feedback'}>
+                {feedback || currentQuest.hint}
+              </p>
+            )}
+          </div>
+        )}
+          </>
+        )}
       </section>
+
+      <aside className="wordbook" aria-label="Wordbook">
+        <section className="side-menu" aria-label="Quick menu">
+          <p className="eyebrow">Menu</p>
+          <div className="side-menu-actions">
+            <button type="button" onClick={startNewQuest}>
+              <ButtonLabel icon={Gamepad2}>Play now</ButtonLabel>
+            </button>
+            <button className="secondary" type="button" onClick={() => setView('lessons')}>
+              <ButtonLabel icon={GraduationCap}>Lessons</ButtonLabel>
+            </button>
+            <button className="secondary" type="button" onClick={() => setView('languages')}>
+              <ButtonLabel icon={Globe2}>Languages</ButtonLabel>
+            </button>
+            <button className="secondary" type="button" onClick={() => setView('shop')}>
+              <ButtonLabel icon={ShoppingBag}>Shop</ButtonLabel>
+            </button>
+            {playerName ? (
+              <button className="secondary" type="button" onClick={logout}>
+                <ButtonLabel icon={LogOut}>Logout</ButtonLabel>
+              </button>
+            ) : (
+              <>
+                <button className="secondary" type="button" onClick={() => setView('login')}>
+                  <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+                </button>
+                <button className="secondary" type="button" onClick={() => setView('register')}>
+                  <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
+                </button>
+              </>
+            )}
+            <button className="secondary" type="button" onClick={() => setView('settings')}>
+              <ButtonLabel icon={Settings}>Settings</ButtonLabel>
+            </button>
+            <button className="secondary" type="button" onClick={saveGame}>
+              <ButtonLabel icon={Save}>Save game</ButtonLabel>
+            </button>
+          </div>
+        </section>
+
+        <div>
+          <p className="eyebrow">Wordbook</p>
+          <h2>Useful words</h2>
+        </div>
+        <ul>
+          {activeWordbook.map(([language, english, translation]) => (
+            <li key={`${language}-${english}`}>
+              <span>{english}</span>
+              <strong>{translation}</strong>
+            </li>
+          ))}
+        </ul>
+      </aside>
     </main>
   );
 }
