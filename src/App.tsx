@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react';
 import {
   ArrowRight,
   BookOpen,
+  CalendarDays,
   Check,
   CircleHelp,
   Coins,
@@ -16,10 +17,10 @@ import {
   Heart,
   HeartMinus,
   Home,
-  ListCollapse,
   Lock,
   LogIn,
   LogOut,
+  Mail,
   PackageOpen,
   Play,
   RotateCcw,
@@ -34,8 +35,13 @@ import {
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { Session } from '@supabase/supabase-js';
 import AITutor from './components/AITutor';
+import DailyReward from './components/DailyReward';
 import DesignEditor from './components/DesignEditor';
+import Leaderboard from './components/Leaderboard';
+import { supabase } from './lib/supabase';
+import type { PlayerSnapshot } from './lib/rewards';
 
 type Language =
   | 'All'
@@ -56,7 +62,7 @@ type Language =
   | 'Swedish'
   | 'Dutch'
   | 'Vietnamese';
-type View = 'start' | 'quest' | 'languages' | 'lessons' | 'shop' | 'login' | 'register' | 'settings';
+type View = 'start' | 'quest' | 'languages' | 'lessons' | 'shop' | 'rewards' | 'leaderboard' | 'login' | 'register' | 'settings';
 type LessonPackId = string;
 type LessonPack = {
   id: LessonPackId;
@@ -92,6 +98,32 @@ function StatLabel({ icon: Icon, children }: { icon: LucideIcon; children: React
   );
 }
 
+function GoogleAuthButton({ mode, onSignIn }: { mode: 'login' | 'register' | 'continue'; onSignIn: () => void }) {
+  const googleLabel = mode === 'register' ? 'Register with Google' : mode === 'continue' ? 'Continue with Google' : 'Google Sign In';
+
+  return (
+    <div className="oauth-actions" aria-label="Social login">
+      <button className="secondary" type="button" onClick={onSignIn}>
+        <ButtonLabel icon={Mail}>{googleLabel}</ButtonLabel>
+      </button>
+    </div>
+  );
+}
+
+function getInitials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const initials = words.slice(0, 2).map((word) => word[0]?.toUpperCase()).join('');
+  return initials || 'G';
+}
+
+function ProfileAvatar({ name, imageUrl }: { name: string; imageUrl: string }) {
+  return (
+    <div className="profile-avatar" aria-label={`${name || 'Guest'} profile picture`}>
+      {imageUrl ? <img src={imageUrl} alt="" /> : <span>{getInitials(name || 'Guest')}</span>}
+    </div>
+  );
+}
+
 type PlayerProgress = {
   selectedLanguage: Language;
   questIndex: number;
@@ -103,6 +135,7 @@ type PlayerProgress = {
   shopChests: number;
   rarityChests: RarityInventory;
   streakFreezes: number;
+  streakShieldUntil: string | null;
   lastDailyLessonDate: string | null;
   chestOpened: boolean;
   heartRefillAt: number | null;
@@ -110,7 +143,6 @@ type PlayerProgress = {
 
 type PlayerSettings = {
   sound: boolean;
-  compactWordbook: boolean;
   hardMode: boolean;
   bossMode: boolean;
 };
@@ -119,6 +151,7 @@ type Account = {
   password: string;
   progress: PlayerProgress;
   settings: PlayerSettings;
+  avatarUrl?: string;
 };
 
 type Accounts = Record<string, Account>;
@@ -135,6 +168,7 @@ type Quest = {
 const accountsKey = 'language-quest-accounts';
 const guestProgressKey = 'language-quest-guest-progress';
 const guestSettingsKey = 'language-quest-guest-settings';
+const oauthPlayerKey = 'language-quest-oauth-player';
 const maxHearts = 5;
 const heartRefillMs = 60 * 60 * 1000;
 const defaultLessonQuestionCount = 10;
@@ -147,6 +181,9 @@ const diamondBundleXpCost = 200;
 const diamondBundleReward = 400;
 const streakFreezeXpCost = 1000;
 const streakFreezeDiamondCost = 1000;
+const maxStreakFreezes = 5;
+const weeklyShieldCost = maxStreakFreezes;
+const weeklyShieldDays = 7;
 const chestRarities: ChestRarity[] = ['Super rare', 'Rare', 'Epic', 'Mythic', 'Legendary', 'Ultimate', 'Ultra ultimate'];
 const chestRarityWeights: Record<ChestRarity, number> = {
   'Super rare': 32,
@@ -220,13 +257,13 @@ const defaultProgress: PlayerProgress = {
   shopChests: 0,
   rarityChests: createEmptyRarityInventory(),
   streakFreezes: 0,
+  streakShieldUntil: null,
   lastDailyLessonDate: null,
   chestOpened: false,
   heartRefillAt: null,
 };
 const defaultSettings: PlayerSettings = {
   sound: false,
-  compactWordbook: false,
   hardMode: false,
   bossMode: false,
 };
@@ -248,6 +285,26 @@ function writeAccounts(accounts: Accounts) {
   localStorage.setItem(accountsKey, JSON.stringify(accounts));
 }
 
+function getOAuthProgressKey(userId: string) {
+  return `language-quest-oauth-${userId}-progress`;
+}
+
+function getOAuthSettingsKey(userId: string) {
+  return `language-quest-oauth-${userId}-settings`;
+}
+
+function getOAuthAvatarKey(userId: string) {
+  return `language-quest-oauth-${userId}-avatar`;
+}
+
+function readOAuthProgress(userId: string) {
+  return getDailyCheckedProgress(readJson(getOAuthProgressKey(userId), defaultProgress));
+}
+
+function getProfileText(value: unknown) {
+  return typeof value === 'string' && value.trim() ? value.trim() : '';
+}
+
 function getLocalDateKey(date = new Date()) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -267,26 +324,70 @@ function addDays(dateKey: string, days: number) {
   return getLocalDateKey(date);
 }
 
+function capStreakFreezes(value: number) {
+  return Math.min(maxStreakFreezes, Math.max(0, value));
+}
+
+function getStreakCalendarDays(streak: number, lastDate: string | null) {
+  const today = getLocalDateKey();
+  const streakDates = new Set<string>();
+
+  if (lastDate) {
+    for (let index = 0; index < streak; index += 1) {
+      streakDates.add(addDays(lastDate, -index));
+    }
+  }
+
+  return Array.from({ length: 7 }, (_, index) => {
+    const dateKey = addDays(today, index - 6);
+    const date = new Date(`${dateKey}T00:00:00`);
+
+    return {
+      dateKey,
+      day: date.toLocaleDateString('en-US', { weekday: 'short' }),
+      number: date.getDate(),
+      complete: streakDates.has(dateKey),
+      today: dateKey === today,
+    };
+  });
+}
+
+function isShieldActive(shieldUntil: string | null, dateKey = getLocalDateKey()) {
+  return Boolean(shieldUntil && getDaysBetween(dateKey, shieldUntil) >= 0);
+}
+
 function getDailyCheckedProgress(progress: PlayerProgress): PlayerProgress {
   if (!progress.lastDailyLessonDate) {
     return {
       ...progress,
-      streakFreezes: progress.streakFreezes ?? defaultProgress.streakFreezes,
+      streakFreezes: capStreakFreezes(progress.streakFreezes ?? defaultProgress.streakFreezes),
+      streakShieldUntil: progress.streakShieldUntil ?? defaultProgress.streakShieldUntil,
       lastDailyLessonDate: null,
     };
   }
 
   const today = getLocalDateKey();
   const missedDays = getDaysBetween(progress.lastDailyLessonDate, today) - 1;
+  const streakShieldUntil = progress.streakShieldUntil ?? defaultProgress.streakShieldUntil;
 
   if (missedDays <= 0) {
     return {
       ...progress,
-      streakFreezes: progress.streakFreezes ?? defaultProgress.streakFreezes,
+      streakFreezes: capStreakFreezes(progress.streakFreezes ?? defaultProgress.streakFreezes),
+      streakShieldUntil,
     };
   }
 
-  const freezes = progress.streakFreezes ?? defaultProgress.streakFreezes;
+  if (isShieldActive(streakShieldUntil, today)) {
+    return {
+      ...progress,
+      streakFreezes: capStreakFreezes(progress.streakFreezes ?? defaultProgress.streakFreezes),
+      streakShieldUntil,
+      lastDailyLessonDate: today,
+    };
+  }
+
+  const freezes = capStreakFreezes(progress.streakFreezes ?? defaultProgress.streakFreezes);
   const usedFreezes = Math.min(freezes, missedDays);
   const missedAfterFreeze = missedDays - usedFreezes;
 
@@ -294,6 +395,7 @@ function getDailyCheckedProgress(progress: PlayerProgress): PlayerProgress {
     ...progress,
     streak: missedAfterFreeze > 0 ? 0 : progress.streak,
     streakFreezes: freezes - usedFreezes,
+    streakShieldUntil,
     lastDailyLessonDate: missedAfterFreeze > 0 ? null : addDays(progress.lastDailyLessonDate, usedFreezes),
   };
 }
@@ -975,7 +1077,7 @@ const topicLessonPacks: LessonPack[] = [
   {
     id: 'daily-life',
     title: 'Daily life',
-    description: 'Useful words for home, routine, and common objects.',
+    description: 'Practice home, routine, and common objects.',
     keywords: ['music', 'time', 'school', 'house', 'food', 'book', 'day', 'morning', 'city'],
   },
   {
@@ -1217,166 +1319,10 @@ function getRandomLessonQuestions(packId: LessonPackId, hardMode = false) {
   return selectedQuestions.slice(0, questionCount);
 }
 
-const wordbook = [
-  // Kazakh
-  ['Kazakh', 'travel', 'sayahat'],
-  ['Kazakh', 'friend', 'dos'],
-  ['Kazakh', 'ready', 'daiyn'],
-  ['Kazakh', 'learn', 'uirenu'],
-  ['Kazakh', 'water', 'su'],
-  ['Kazakh', 'school', 'mektep'],
-  ['Kazakh', 'book', 'kitap'],
-  ['Kazakh', 'morning', 'tan'],
-  ['Kazakh', 'city', 'qala'],
-  ['Kazakh', 'sky', 'aspan'],
-  ['Kazakh', 'apple', 'alma'],
-  ['Kazakh', 'thank you', 'raqmet'],
-  // Spanish
-  ['Spanish', 'hello', 'hola'],
-  ['Spanish', 'water', 'agua'],
-  ['Spanish', 'thank you', 'gracias'],
-  ['Spanish', 'house', 'casa'],
-  ['Spanish', 'book', 'libro'],
-  ['Spanish', 'friend', 'amigo'],
-  ['Spanish', 'no', 'no'],
-  ['Spanish', 'red', 'rojo'],
-  ['Spanish', 'food', 'comida'],
-  ['Spanish', 'happy', 'feliz'],
-  ['Spanish', 'time', 'tiempo'],
-  ['Spanish', 'dog', 'perro'],
-  // French
-  ['French', 'hello', 'bonjour'],
-  ['French', 'water', 'eau'],
-  ['French', 'thank you', 'merci'],
-  ['French', 'book', 'livre'],
-  ['French', 'friend', 'ami'],
-  ['French', 'no', 'non'],
-  ['French', 'red', 'rouge'],
-  ['French', 'dog', 'chien'],
-  ['French', 'food', 'nourriture'],
-  ['French', 'school', 'ecole'],
-  ['French', 'time', 'temps'],
-  ['French', 'happy', 'heureux'],
-  // German
-  ['German', 'hello', 'hallo'],
-  ['German', 'water', 'wasser'],
-  ['German', 'thank you', 'danke'],
-  ['German', 'school', 'schule'],
-  ['German', 'apple', 'apfel'],
-  ['German', 'no', 'nein'],
-  ['German', 'red', 'rot'],
-  ['German', 'friend', 'freund'],
-  ['German', 'house', 'haus'],
-  ['German', 'happy', 'glucklich'],
-  ['German', 'time', 'zeit'],
-  ['German', 'big', 'gross'],
-  // English
-  ['English', 'read', 'read'],
-  ['English', 'late', 'late'],
-  ['English', 'happy', 'happy'],
-  ['English', 'fast', 'fast'],
-  ['English', 'outside', 'outside'],
-  ['English', 'beautiful', 'lovely'],
-  ['English', 'curious', 'inquisitive'],
-  ['English', 'failure', 'loss'],
-  ['English', 'terrified', 'scared'],
-  ['English', 'persistent', 'continuous'],
-  // Portuguese
-  ['Portuguese', 'hello', 'ola'],
-  ['Portuguese', 'water', 'agua'],
-  ['Portuguese', 'thank you', 'obrigado'],
-  ['Portuguese', 'friend', 'amigo'],
-  ['Portuguese', 'house', 'casa'],
-  ['Portuguese', 'no', 'nao'],
-  ['Portuguese', 'food', 'comida'],
-  ['Portuguese', 'red', 'vermelho'],
-  ['Portuguese', 'book', 'livro'],
-  ['Portuguese', 'happy', 'feliz'],
-  ['Portuguese', 'time', 'tempo'],
-  ['Portuguese', 'apple', 'maca'],
-  // Italian
-  ['Italian', 'hello', 'ciao'],
-  ['Italian', 'water', 'acqua'],
-  ['Italian', 'thank you', 'grazie'],
-  ['Italian', 'friend', 'amico'],
-  ['Italian', 'house', 'casa'],
-  ['Italian', 'no', 'no'],
-  ['Italian', 'food', 'cibo'],
-  ['Italian', 'red', 'rosso'],
-  ['Italian', 'book', 'libro'],
-  ['Italian', 'happy', 'felice'],
-  ['Italian', 'time', 'tempo'],
-  ['Italian', 'apple', 'mela'],
-  // Russian
-  ['Russian', 'hello', 'privet'],
-  ['Russian', 'water', 'voda'],
-  ['Russian', 'thank you', 'spasibo'],
-  ['Russian', 'friend', 'drug'],
-  ['Russian', 'house', 'dom'],
-  ['Russian', 'no', 'nyet'],
-  ['Russian', 'food', 'yeda'],
-  ['Russian', 'red', 'krasnyy'],
-  ['Russian', 'book', 'kniga'],
-  ['Russian', 'happy', 'schastlivyy'],
-  ['Russian', 'time', 'vremya'],
-  ['Russian', 'big', 'bolshoy'],
-  // Japanese
-  ['Japanese', 'hello', 'konnichiha'],
-  ['Japanese', 'water', 'mizu'],
-  ['Japanese', 'thank you', 'arigatou'],
-  ['Japanese', 'friend', 'tomodachi'],
-  ['Japanese', 'house', 'ie'],
-  ['Japanese', 'no', 'iie'],
-  ['Japanese', 'food', 'tabemono'],
-  ['Japanese', 'red', 'aka'],
-  ['Japanese', 'book', 'hon'],
-  ['Japanese', 'happy', 'shiawase'],
-  ['Japanese', 'time', 'jikan'],
-  ['Japanese', 'big', 'ookii'],
-  // Chinese
-  ['Chinese', 'hello', 'nihao'],
-  ['Chinese', 'water', 'shui'],
-  ['Chinese', 'thank you', 'xiexie'],
-  ['Chinese', 'friend', 'pengyou'],
-  ['Chinese', 'house', 'fangzi'],
-  ['Chinese', 'no', 'bu'],
-  ['Chinese', 'food', 'shiwu'],
-  ['Chinese', 'red', 'hongse'],
-  ['Chinese', 'book', 'shu'],
-  ['Chinese', 'happy', 'kuaile'],
-  ['Chinese', 'time', 'shijian'],
-  ['Chinese', 'big', 'da'],
-  // Korean
-  ['Korean', 'hello', 'annyeonghaseyo'],
-  ['Korean', 'water', 'mul'],
-  ['Korean', 'thank you', 'gamsahamnida'],
-  ['Korean', 'friend', 'chingu'],
-  ['Korean', 'house', 'jip'],
-  ['Korean', 'no', 'aniyo'],
-  ['Korean', 'food', 'eumsik'],
-  ['Korean', 'red', 'ppalggang'],
-  ['Korean', 'book', 'chaek'],
-  ['Korean', 'happy', 'haengbok'],
-  ['Korean', 'time', 'sigan'],
-  ['Korean', 'big', 'keuda'],
-  // Arabic
-  ['Arabic', 'hello', 'marhaba'],
-  ['Arabic', 'water', 'maa'],
-  ['Arabic', 'thank you', 'shukran'],
-  ['Arabic', 'friend', 'sadeeq'],
-  ['Arabic', 'house', 'bayt'],
-  ['Arabic', 'no', 'la'],
-  ['Arabic', 'food', 'taam'],
-  ['Arabic', 'red', 'ahmar'],
-  ['Arabic', 'book', 'kitaab'],
-  ['Arabic', 'happy', 'saeed'],
-  ['Arabic', 'time', 'waqt'],
-  ['Arabic', 'big', 'kabir'],
-];
-
 export default function App() {
   const [view, setView] = useState<View>('quest');
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('language-quest-player') || '');
+  const [oauthUserId, setOauthUserId] = useState(() => localStorage.getItem(oauthPlayerKey) || '');
   const [selectedLessonPack, setSelectedLessonPack] = useState<LessonPackId | null>(null);
   const [selectedLessonQuests, setSelectedLessonQuests] = useState<Quest[] | null>(null);
   const [lessonStreakAwarded, setLessonStreakAwarded] = useState(false);
@@ -1385,6 +1331,17 @@ export default function App() {
   const [authMessage, setAuthMessage] = useState('');
   const [authMode, setAuthMode] = useState<'login' | 'register' | null>(null);
   const [saveMessage, setSaveMessage] = useState('');
+  const [profileImageUrl, setProfileImageUrl] = useState(() => {
+    const accounts = readAccounts();
+    const savedPlayer = localStorage.getItem('language-quest-player') || '';
+    const savedOAuthUserId = localStorage.getItem(oauthPlayerKey) || '';
+
+    if (savedOAuthUserId) {
+      return localStorage.getItem(getOAuthAvatarKey(savedOAuthUserId)) || '';
+    }
+
+    return savedPlayer && accounts[savedPlayer] ? accounts[savedPlayer].avatarUrl ?? '' : '';
+  });
   const [settings, setSettings] = useState<PlayerSettings>(() => {
     const accounts = readAccounts();
     const savedPlayer = localStorage.getItem('language-quest-player') || '';
@@ -1433,7 +1390,11 @@ export default function App() {
   });
   const [streakFreezes, setStreakFreezes] = useState(() => {
     const progress = readStoredProgress();
-    return progress.streakFreezes ?? defaultProgress.streakFreezes;
+    return capStreakFreezes(progress.streakFreezes ?? defaultProgress.streakFreezes);
+  });
+  const [streakShieldUntil, setStreakShieldUntil] = useState<string | null>(() => {
+    const progress = readStoredProgress();
+    return progress.streakShieldUntil ?? defaultProgress.streakShieldUntil;
   });
   const [lastDailyLessonDate, setLastDailyLessonDate] = useState<string | null>(() => {
     const progress = readStoredProgress();
@@ -1463,23 +1424,74 @@ export default function App() {
 
     return questPool;
   }, [selectedLanguage, selectedLessonQuests, settings.hardMode]);
-  const activeWordbook = useMemo(() => {
-    const words = selectedLanguage === 'All' ? wordbook : wordbook.filter(([language]) => language === selectedLanguage);
-    const safeWords = words.length > 0 ? words : wordbook;
-    return settings.compactWordbook ? safeWords.slice(0, 10) : safeWords;
-  }, [selectedLanguage, settings.compactWordbook]);
+  const streakCalendarDays = useMemo(
+    () => getStreakCalendarDays(streak, lastDailyLessonDate),
+    [lastDailyLessonDate, streak],
+  );
+  const shieldActive = isShieldActive(streakShieldUntil);
   const currentQuest = activeQuests[questIndex];
   const currentOptions = useMemo(() => (currentQuest ? shuffleOptions(currentQuest.options) : []), [currentQuest]);
+  const selectedLesson = selectedLessonPack ? lessonPacks.find((lessonPack) => lessonPack.id === selectedLessonPack) ?? null : null;
+  const isLessonRun = Boolean(selectedLessonPack);
   const isComplete = questIndex >= activeQuests.length;
   const progress = activeQuests.length > 0 ? Math.round((questIndex / activeQuests.length) * 100) : 0;
   const hardModeEnabled = settings.hardMode;
   const bossModeEnabled = settings.bossMode;
   const heartText = 'HP '.repeat(hearts).trim() || '0';
   const refillText = hearts < maxHearts && heartRefillAt ? `+1 in ${refillLabel}` : 'Full';
+  const playerSnapshot: PlayerSnapshot = {
+    playerName: playerName || 'Guest',
+    score,
+    xp,
+    diamonds,
+    streak,
+  };
   const feedback = useMemo(() => {
     if (!selected) return '';
     return selected === currentQuest?.answer ? 'Correct. The path opens.' : 'Not quite. Try the hint and keep moving.';
   }, [currentQuest?.answer, selected]);
+
+  useEffect(() => {
+    function applyOAuthSession(session: Session | null) {
+      if (!session) {
+        setOauthUserId('');
+        localStorage.removeItem(oauthPlayerKey);
+        return;
+      }
+
+      const metadata = session.user.user_metadata;
+      const displayName =
+        getProfileText(metadata.full_name) ||
+        getProfileText(metadata.name) ||
+        session.user.email ||
+        'OAuth player';
+      const providerAvatar = getProfileText(metadata.avatar_url) || getProfileText(metadata.picture);
+      const savedAvatar = localStorage.getItem(getOAuthAvatarKey(session.user.id)) || '';
+      const nextAvatar = savedAvatar || providerAvatar;
+
+      setOauthUserId(session.user.id);
+      setPlayerName(displayName);
+      setProfileImageUrl(nextAvatar);
+      localStorage.setItem(oauthPlayerKey, session.user.id);
+      localStorage.setItem('language-quest-player', displayName);
+      if (nextAvatar) {
+        localStorage.setItem(getOAuthAvatarKey(session.user.id), nextAvatar);
+      }
+      applyProgress(readOAuthProgress(session.user.id), readJson(getOAuthSettingsKey(session.user.id), defaultSettings));
+      setAuthMessage('');
+      setView('quest');
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      applyOAuthSession(data.session);
+    });
+
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      applyOAuthSession(session);
+    });
+
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     const safeQuestIndex = Math.min(questIndex, activeQuests.length);
@@ -1494,15 +1506,25 @@ export default function App() {
       shopChests,
       rarityChests,
       streakFreezes,
+      streakShieldUntil,
       lastDailyLessonDate,
       chestOpened,
       heartRefillAt,
     };
 
+    if (oauthUserId) {
+      localStorage.setItem(getOAuthProgressKey(oauthUserId), JSON.stringify(progress));
+      localStorage.setItem(getOAuthSettingsKey(oauthUserId), JSON.stringify(settings));
+      localStorage.setItem(getOAuthAvatarKey(oauthUserId), profileImageUrl);
+      localStorage.setItem(oauthPlayerKey, oauthUserId);
+      localStorage.setItem('language-quest-player', playerName);
+      return;
+    }
+
     if (playerName) {
       const accounts = readAccounts();
       if (accounts[playerName]) {
-        accounts[playerName] = { ...accounts[playerName], progress, settings };
+        accounts[playerName] = { ...accounts[playerName], progress, settings, avatarUrl: profileImageUrl };
         writeAccounts(accounts);
       }
       localStorage.setItem('language-quest-player', playerName);
@@ -1512,7 +1534,7 @@ export default function App() {
     localStorage.removeItem('language-quest-player');
     localStorage.setItem(guestProgressKey, JSON.stringify(progress));
     localStorage.setItem(guestSettingsKey, JSON.stringify(settings));
-  }, [activeQuests.length, chestOpened, diamonds, heartRefillAt, hearts, lastDailyLessonDate, playerName, questIndex, rarityChests, score, selectedLanguage, settings, shopChests, streak, streakFreezes, xp]);
+  }, [activeQuests.length, chestOpened, diamonds, heartRefillAt, hearts, lastDailyLessonDate, oauthUserId, playerName, profileImageUrl, questIndex, rarityChests, score, selectedLanguage, settings, shopChests, streak, streakFreezes, streakShieldUntil, xp]);
 
   useEffect(() => {
     if (questIndex > activeQuests.length) {
@@ -1616,6 +1638,7 @@ export default function App() {
       shopChests,
       rarityChests,
       streakFreezes,
+      streakShieldUntil,
       lastDailyLessonDate,
       chestOpened,
       heartRefillAt,
@@ -1625,10 +1648,19 @@ export default function App() {
   function saveGame() {
     const progress = getCurrentProgress();
 
+    if (oauthUserId) {
+      localStorage.setItem(getOAuthProgressKey(oauthUserId), JSON.stringify(progress));
+      localStorage.setItem(getOAuthSettingsKey(oauthUserId), JSON.stringify(settings));
+      localStorage.setItem(getOAuthAvatarKey(oauthUserId), profileImageUrl);
+      localStorage.setItem(oauthPlayerKey, oauthUserId);
+      setSaveMessage(`Saved ${playerName}'s game.`);
+      return;
+    }
+
     if (playerName) {
       const accounts = readAccounts();
       if (accounts[playerName]) {
-        accounts[playerName] = { ...accounts[playerName], progress, settings };
+        accounts[playerName] = { ...accounts[playerName], progress, settings, avatarUrl: profileImageUrl };
         writeAccounts(accounts);
         localStorage.setItem('language-quest-player', playerName);
         setSaveMessage(`Saved ${playerName}'s game.`);
@@ -1704,6 +1736,12 @@ export default function App() {
     setRewardAnimation('Daily lesson complete +1 streak');
   }
 
+  function claimLocalDailyReward(reward: { xp: number; diamonds: number }) {
+    setXp((value) => value + reward.xp);
+    setDiamonds((value) => value + reward.diamonds);
+    setRewardAnimation(`+${reward.xp} XP +${reward.diamonds} diamonds`);
+  }
+
   function awardRarityChest() {
     const rarity = getRandomChestRarity();
     setRarityChests((inventory) => ({
@@ -1750,6 +1788,11 @@ export default function App() {
   }
 
   function buyStreakFreeze(currency: 'xp' | 'diamonds') {
+    if (streakFreezes >= maxStreakFreezes) {
+      setShopMessage(`You can hold only ${maxStreakFreezes} streak freezes.`);
+      return;
+    }
+
     if (currency === 'xp') {
       if (xp < streakFreezeXpCost) {
         setShopMessage(`Need ${streakFreezeXpCost} XP to buy a streak freeze.`);
@@ -1766,8 +1809,26 @@ export default function App() {
       setDiamonds((value) => value - streakFreezeDiamondCost);
     }
 
-    setStreakFreezes((value) => value + 1);
+    setStreakFreezes((value) => capStreakFreezes(value + 1));
     setShopMessage('Streak freeze added.');
+  }
+
+  function activateWeeklyShield() {
+    if (shieldActive) {
+      setShopMessage(`Your 1 week shield is active until ${streakShieldUntil}.`);
+      return;
+    }
+
+    if (streakFreezes < weeklyShieldCost) {
+      setShopMessage(`Need ${weeklyShieldCost} streak freezes to activate a 1 week shield.`);
+      return;
+    }
+
+    const shieldUntil = addDays(getLocalDateKey(), weeklyShieldDays - 1);
+    setStreakFreezes((value) => capStreakFreezes(value - weeklyShieldCost));
+    setStreakShieldUntil(shieldUntil);
+    setShopMessage(`1 week streak shield active until ${shieldUntil}.`);
+    setRewardAnimation('1 week streak shield active');
   }
 
   function exchangeCurrency(type: 'diamonds-to-xp' | 'xp-to-diamonds') {
@@ -1820,7 +1881,7 @@ export default function App() {
     } else if (prize.kind === 'diamonds') {
       setDiamonds((value) => value + prize.amount);
     } else {
-      setStreakFreezes((value) => value + prize.amount);
+      setStreakFreezes((value) => capStreakFreezes(value + prize.amount));
     }
 
     setShopMessage(`${rarity} chest gave ${prize.label}.`);
@@ -1866,6 +1927,13 @@ export default function App() {
     setView('quest');
   }
 
+  function closeLesson() {
+    setSelectedLessonPack(null);
+    setSelectedLessonQuests(null);
+    resetRun();
+    setView('lessons');
+  }
+
   function applyProgress(progress: PlayerProgress, nextSettings: PlayerSettings) {
     const dailyCheckedProgress = getDailyCheckedProgress(progress);
     const refilled = getRefilledHeartState(dailyCheckedProgress);
@@ -1880,7 +1948,8 @@ export default function App() {
     setDiamonds(dailyCheckedProgress.diamonds ?? defaultProgress.diamonds);
     setShopChests(dailyCheckedProgress.shopChests ?? defaultProgress.shopChests);
     setRarityChests(normalizeRarityInventory(dailyCheckedProgress.rarityChests));
-    setStreakFreezes(dailyCheckedProgress.streakFreezes ?? defaultProgress.streakFreezes);
+    setStreakFreezes(capStreakFreezes(dailyCheckedProgress.streakFreezes ?? defaultProgress.streakFreezes));
+    setStreakShieldUntil(dailyCheckedProgress.streakShieldUntil ?? defaultProgress.streakShieldUntil);
     setLastDailyLessonDate(dailyCheckedProgress.lastDailyLessonDate ?? defaultProgress.lastDailyLessonDate);
     setChestOpened(dailyCheckedProgress.chestOpened ?? defaultProgress.chestOpened);
     setSettings(nextSettings);
@@ -1896,6 +1965,20 @@ export default function App() {
     setAuthMode(null);
   }
 
+  async function signInWithGoogle() {
+    setAuthMessage('');
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      setAuthMessage(error.message);
+    }
+  }
+
   function handleLogin(event: FormEvent) {
     event.preventDefault();
     const name = authName.trim();
@@ -1906,7 +1989,11 @@ export default function App() {
       return;
     }
 
+    setOauthUserId('');
+    localStorage.removeItem(oauthPlayerKey);
+    void supabase.auth.signOut();
     setPlayerName(name);
+    setProfileImageUrl(accounts[name].avatarUrl ?? '');
     applyProgress(accounts[name].progress, accounts[name].settings);
     clearAuthForm();
     setView('quest');
@@ -1943,6 +2030,7 @@ export default function App() {
       shopChests,
       rarityChests,
       streakFreezes,
+      streakShieldUntil,
       lastDailyLessonDate,
       chestOpened,
       heartRefillAt,
@@ -1952,15 +2040,27 @@ export default function App() {
       password: authPassword,
       progress,
       settings,
+      avatarUrl: '',
     };
     writeAccounts(accounts);
+    setOauthUserId('');
+    localStorage.removeItem(oauthPlayerKey);
+    void supabase.auth.signOut();
     setPlayerName(name);
+    setProfileImageUrl('');
     clearAuthForm();
     setView('quest');
   }
 
   function logout() {
+    if (oauthUserId) {
+      void supabase.auth.signOut();
+    }
+
     setPlayerName('');
+    setOauthUserId('');
+    setProfileImageUrl('');
+    localStorage.removeItem(oauthPlayerKey);
     applyProgress(readJson(guestProgressKey, defaultProgress), readJson(guestSettingsKey, defaultSettings));
     setView('quest');
   }
@@ -1973,6 +2073,7 @@ export default function App() {
     setShopChests(defaultProgress.shopChests);
     setRarityChests(defaultProgress.rarityChests);
     setStreakFreezes(defaultProgress.streakFreezes);
+    setStreakShieldUntil(defaultProgress.streakShieldUntil);
     setLastDailyLessonDate(defaultProgress.lastDailyLessonDate);
     setChestOpened(defaultProgress.chestOpened);
 
@@ -2022,6 +2123,12 @@ export default function App() {
           <button className={view === 'shop' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('shop')}>
             <ButtonLabel icon={ShoppingBag}>Shop</ButtonLabel>
           </button>
+          <button className={view === 'rewards' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('rewards')}>
+            <ButtonLabel icon={Gift}>Rewards</ButtonLabel>
+          </button>
+          <button className={view === 'leaderboard' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('leaderboard')}>
+            <ButtonLabel icon={Trophy}>Leaderboard</ButtonLabel>
+          </button>
           {playerName ? (
             <button className="menu-button" type="button" onClick={logout}>
               <ButtonLabel icon={LogOut}>Logout</ButtonLabel>
@@ -2044,9 +2151,17 @@ export default function App() {
           </button>
         </nav>
 
-        <p className="player-line">
-          {playerName ? `Playing as ${playerName}. Progress saves to this profile.` : 'Playing as Guest. Progress saves on this device.'}
-        </p>
+        <div className="player-line">
+          <ProfileAvatar name={playerName || 'Guest'} imageUrl={profileImageUrl} />
+          <p>
+            {playerName ? `Playing as ${playerName}. Progress saves to this profile.` : 'Playing as Guest. Progress saves on this device.'}
+          </p>
+          {!playerName && (
+            <button className="google-signin-button" type="button" onClick={() => void signInWithGoogle()}>
+              <ButtonLabel icon={Mail}>Google Sign In</ButtonLabel>
+            </button>
+          )}
+        </div>
         {saveMessage && <p className="save-line">{saveMessage}</p>}
 
         {view === 'start' && (
@@ -2058,6 +2173,11 @@ export default function App() {
               <button type="button" onClick={startNewQuest}>
                 <ButtonLabel icon={Gamepad2}>Play now</ButtonLabel>
               </button>
+              {!playerName && (
+                <button type="button" onClick={() => void signInWithGoogle()}>
+                  <ButtonLabel icon={Mail}>Google Sign In</ButtonLabel>
+                </button>
+              )}
               <button type="button" onClick={() => setView('lessons')}>
                 <ButtonLabel icon={GraduationCap}>Lessons</ButtonLabel>
               </button>
@@ -2066,6 +2186,12 @@ export default function App() {
               </button>
               <button type="button" onClick={() => setView('shop')}>
                 <ButtonLabel icon={ShoppingBag}>Shop</ButtonLabel>
+              </button>
+              <button type="button" onClick={() => setView('rewards')}>
+                <ButtonLabel icon={Gift}>Daily reward</ButtonLabel>
+              </button>
+              <button type="button" onClick={() => setView('leaderboard')}>
+                <ButtonLabel icon={Trophy}>Leaderboard</ButtonLabel>
               </button>
               <button type="button" onClick={() => setView('login')}>
                 <ButtonLabel icon={LogIn}>Login</ButtonLabel>
@@ -2221,14 +2347,26 @@ export default function App() {
             <div className="shop-item">
               <div>
                 <strong>Streak freeze</strong>
-                <p>Saves your streak if you miss one daily lesson.</p>
+                <p>Saves your streak if you miss one daily lesson. Max {maxStreakFreezes}.</p>
               </div>
               <div className="shop-actions">
-                <button type="button" onClick={() => buyStreakFreeze('xp')} disabled={xp < streakFreezeXpCost}>
+                <button type="button" onClick={() => buyStreakFreeze('xp')} disabled={xp < streakFreezeXpCost || streakFreezes >= maxStreakFreezes}>
                   <ButtonLabel icon={Coins}>Buy for {streakFreezeXpCost} XP</ButtonLabel>
                 </button>
-                <button type="button" onClick={() => buyStreakFreeze('diamonds')} disabled={diamonds < streakFreezeDiamondCost}>
+                <button type="button" onClick={() => buyStreakFreeze('diamonds')} disabled={diamonds < streakFreezeDiamondCost || streakFreezes >= maxStreakFreezes}>
                   <ButtonLabel icon={Diamond}>Buy for {streakFreezeDiamondCost} diamonds</ButtonLabel>
+                </button>
+              </div>
+            </div>
+
+            <div className="shop-item">
+              <div>
+                <strong>1 week streak shield</strong>
+                <p>Uses {weeklyShieldCost} streak freezes to protect your streak for {weeklyShieldDays} days.</p>
+              </div>
+              <div className="shop-actions">
+                <button type="button" onClick={activateWeeklyShield} disabled={shieldActive || streakFreezes < weeklyShieldCost}>
+                  <ButtonLabel icon={CalendarDays}>{shieldActive ? `Active until ${streakShieldUntil}` : 'Activate shield'}</ButtonLabel>
                 </button>
               </div>
             </div>
@@ -2237,10 +2375,25 @@ export default function App() {
           </section>
         )}
 
+        {view === 'rewards' && (
+          <DailyReward
+            snapshot={playerSnapshot}
+            isSignedIn={Boolean(oauthUserId)}
+            onClaim={claimLocalDailyReward}
+            onSignIn={() => void signInWithGoogle()}
+          />
+        )}
+
+        {view === 'leaderboard' && (
+          <Leaderboard snapshot={playerSnapshot} isSignedIn={Boolean(oauthUserId)} />
+        )}
+
         {view === 'login' && (
           <section className="menu-panel" aria-label="Login">
             <p className="eyebrow">Login</p>
             <h2>Continue your quest.</h2>
+            <GoogleAuthButton mode="login" onSignIn={() => void signInWithGoogle()} />
+            <p className="auth-divider">or use a local player profile</p>
             <form className="auth-form" onSubmit={handleLogin}>
               <label>
                 Player name
@@ -2268,6 +2421,8 @@ export default function App() {
           <section className="menu-panel" aria-label="Register">
             <p className="eyebrow">Register</p>
             <h2>Create a player.</h2>
+            <GoogleAuthButton mode="register" onSignIn={() => void signInWithGoogle()} />
+            <p className="auth-divider">or create a local player profile</p>
             <form className="auth-form" onSubmit={handleRegister}>
               <label>
                 Player name
@@ -2301,7 +2456,21 @@ export default function App() {
               <p style={{ margin: '0 0 0.5rem', fontWeight: 700 }}>Account</p>
               {playerName ? (
                 <>
-                  <p style={{ margin: '0 0 0.75rem' }}>Signed in as {playerName}.</p>
+                  <div className="profile-settings">
+                    <ProfileAvatar name={playerName} imageUrl={profileImageUrl} />
+                    <div>
+                      <p style={{ margin: '0 0 0.75rem' }}>Signed in as {playerName}.</p>
+                      <label>
+                        Profile picture URL
+                        <input
+                          value={profileImageUrl}
+                          onChange={(event) => setProfileImageUrl(event.target.value.trim())}
+                          placeholder="https://example.com/avatar.png"
+                          type="url"
+                        />
+                      </label>
+                    </div>
+                  </div>
                   <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
                     <button type="button" onClick={saveGame}>
                       <ButtonLabel icon={Save}>Save game</ButtonLabel>
@@ -2314,6 +2483,7 @@ export default function App() {
               ) : (
                 <>
                   <p style={{ margin: '0 0 0.75rem' }}>Create a profile or keep playing as a guest.</p>
+                  <GoogleAuthButton mode="continue" onSignIn={() => void signInWithGoogle()} />
                   <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
                     <button type="button" onClick={() => setAuthMode('login')}>
                       <ButtonLabel icon={LogIn}>Login</ButtonLabel>
@@ -2401,17 +2571,6 @@ export default function App() {
             </label>
             <label className="toggle-row">
               <span>
-                <strong><StatLabel icon={ListCollapse}>Compact wordbook</StatLabel></strong>
-                <small>Show a shorter study list.</small>
-              </span>
-              <input
-                type="checkbox"
-                checked={settings.compactWordbook}
-                onChange={(event) => setSettings((value) => ({ ...value, compactWordbook: event.target.checked }))}
-              />
-            </label>
-            <label className="toggle-row">
-              <span>
                 <strong><StatLabel icon={Lock}>Hard mode</StatLabel></strong>
                 <small>No hints and tougher penalties for mistakes.</small>
               </span>
@@ -2481,18 +2640,52 @@ export default function App() {
           </div>
         </div>
 
-        <div className="language-tabs" aria-label="Language filter">
-          {playableLanguageOptions.map((language) => (
-            <button
-              className={language === selectedLanguage ? 'language-tab language-tab--active' : 'language-tab'}
-              type="button"
-              key={language}
-              onClick={() => chooseLanguage(language)}
-            >
-              <ButtonLabel icon={Globe2}>{language}</ButtonLabel>
+        <section className="streak-calendar" aria-label="Streak calendar">
+          <div className="streak-calendar-header">
+            <StatLabel icon={CalendarDays}>Streak calendar</StatLabel>
+            <span>{shieldActive ? `Shield until ${streakShieldUntil}` : `${streakFreezes}/${maxStreakFreezes} freezes`}</span>
+          </div>
+          <div className="streak-days">
+            {streakCalendarDays.map((day) => (
+              <div
+                className={[
+                  'streak-day',
+                  day.complete ? 'streak-day--complete' : '',
+                  day.today ? 'streak-day--today' : '',
+                ].join(' ')}
+                key={day.dateKey}
+              >
+                <span>{day.day}</span>
+                <strong>{day.number}</strong>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {isLessonRun ? (
+          <section className="lesson-run-header" aria-label="Current lesson">
+            <div>
+              <p className="eyebrow">Lesson mode</p>
+              <h2>{selectedLesson?.title ?? 'Lesson'}</h2>
+            </div>
+            <button className="secondary" type="button" onClick={closeLesson}>
+              <ButtonLabel icon={X}>Close lesson</ButtonLabel>
             </button>
-          ))}
-        </div>
+          </section>
+        ) : (
+          <div className="language-tabs" aria-label="Language filter">
+            {playableLanguageOptions.map((language) => (
+              <button
+                className={language === selectedLanguage ? 'language-tab language-tab--active' : 'language-tab'}
+                type="button"
+                key={language}
+                onClick={() => chooseLanguage(language)}
+              >
+                <ButtonLabel icon={Globe2}>{language}</ButtonLabel>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="progress" aria-label={`Progress ${progress}%`}>
           <span style={{ width: `${progress}%` }} />
@@ -2500,9 +2693,12 @@ export default function App() {
 
         {isComplete ? (
           <div className="victory">
-            <p className="eyebrow">Quest complete</p>
-            <h2>You cleared the trail.</h2>
-            <p>Your final score is {score}. Review the wordbook or restart for a cleaner run.</p>
+            <p className="eyebrow">{isLessonRun ? 'Lesson complete' : 'Quest complete'}</p>
+            <h2>{isLessonRun ? 'You finished the lesson.' : 'You cleared the trail.'}</h2>
+            <p>
+              Your final score is {score}.{' '}
+              {isLessonRun ? 'Close the lesson to return to lesson packs.' : 'Restart for a cleaner run or open Lessons for focused practice.'}
+            </p>
             <div className="chest-reward">
               <strong>{chestOpened ? 'Chest opened' : 'Reward chest'}</strong>
               <span>{chestOpened ? 'A rarity chest was added to your inventory.' : 'Open it to collect a rarity chest.'}</span>
@@ -2511,8 +2707,13 @@ export default function App() {
               </button>
             </div>
             <button type="button" onClick={restartQuest}>
-              <ButtonLabel icon={RotateCcw}>Play again</ButtonLabel>
+              <ButtonLabel icon={RotateCcw}>{isLessonRun ? 'Repeat lesson' : 'Play again'}</ButtonLabel>
             </button>
+            {isLessonRun && (
+              <button className="secondary" type="button" onClick={closeLesson}>
+                <ButtonLabel icon={X}>Close lesson</ButtonLabel>
+              </button>
+            )}
           </div>
         ) : (
           <div className="challenge">
@@ -2573,60 +2774,8 @@ export default function App() {
         )}
           </>
         )}
+        <p className="copyright-line">© 2026 Arlan Kim Vladimirovich</p>
       </section>
-
-      <aside className="wordbook" aria-label="Wordbook">
-        <section className="side-menu" aria-label="Quick menu">
-          <p className="eyebrow">Menu</p>
-          <div className="side-menu-actions">
-            <button type="button" onClick={startNewQuest}>
-              <ButtonLabel icon={Gamepad2}>Play now</ButtonLabel>
-            </button>
-            <button className="secondary" type="button" onClick={() => setView('lessons')}>
-              <ButtonLabel icon={GraduationCap}>Lessons</ButtonLabel>
-            </button>
-            <button className="secondary" type="button" onClick={() => setView('languages')}>
-              <ButtonLabel icon={Globe2}>Languages</ButtonLabel>
-            </button>
-            <button className="secondary" type="button" onClick={() => setView('shop')}>
-              <ButtonLabel icon={ShoppingBag}>Shop</ButtonLabel>
-            </button>
-            {playerName ? (
-              <button className="secondary" type="button" onClick={logout}>
-                <ButtonLabel icon={LogOut}>Logout</ButtonLabel>
-              </button>
-            ) : (
-              <>
-                <button className="secondary" type="button" onClick={() => setView('login')}>
-                  <ButtonLabel icon={LogIn}>Login</ButtonLabel>
-                </button>
-                <button className="secondary" type="button" onClick={() => setView('register')}>
-                  <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
-                </button>
-              </>
-            )}
-            <button className="secondary" type="button" onClick={() => setView('settings')}>
-              <ButtonLabel icon={Settings}>Settings</ButtonLabel>
-            </button>
-            <button className="secondary" type="button" onClick={saveGame}>
-              <ButtonLabel icon={Save}>Save game</ButtonLabel>
-            </button>
-          </div>
-        </section>
-
-        <div>
-          <p className="eyebrow">Wordbook</p>
-          <h2>Useful words</h2>
-        </div>
-        <ul>
-          {activeWordbook.map(([language, english, translation]) => (
-            <li key={`${language}-${english}`}>
-              <span>{english}</span>
-              <strong>{translation}</strong>
-            </li>
-          ))}
-        </ul>
-      </aside>
     </main>
   );
 }
