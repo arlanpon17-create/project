@@ -61,7 +61,20 @@ type Language =
   | 'Turkish'
   | 'Swedish'
   | 'Dutch'
-  | 'Vietnamese';
+  | 'Vietnamese'
+  | 'Polish'
+  | 'Greek'
+  | 'Indonesian'
+  | 'Thai'
+  | 'Ukrainian'
+  | 'Finnish'
+  | 'Norwegian'
+  | 'Danish'
+  | 'Czech'
+  | 'Romanian'
+  | 'Hebrew'
+  | 'Malay'
+  | 'Filipino';
 type View = 'start' | 'quest' | 'languages' | 'lessons' | 'shop' | 'rewards' | 'leaderboard' | 'login' | 'register' | 'settings';
 type LessonPackId = string;
 type LessonPack = {
@@ -124,6 +137,49 @@ function ProfileAvatar({ name, imageUrl }: { name: string; imageUrl: string }) {
   );
 }
 
+const languageFlags: Record<Language, string> = {
+  All: '🌐',
+  Kazakh: '🇰🇿',
+  Spanish: '🇪🇸',
+  French: '🇫🇷',
+  German: '🇩🇪',
+  English: '🇬🇧',
+  Portuguese: '🇵🇹',
+  Italian: '🇮🇹',
+  Russian: '🇷🇺',
+  Japanese: '🇯🇵',
+  Chinese: '🇨🇳',
+  Korean: '🇰🇷',
+  Arabic: '🇸🇦',
+  Hindi: '🇮🇳',
+  Turkish: '🇹🇷',
+  Swedish: '🇸🇪',
+  Dutch: '🇳🇱',
+  Vietnamese: '🇻🇳',
+  Polish: '🇵🇱',
+  Greek: '🇬🇷',
+  Indonesian: '🇮🇩',
+  Thai: '🇹🇭',
+  Ukrainian: '🇺🇦',
+  Finnish: '🇫🇮',
+  Norwegian: '🇳🇴',
+  Danish: '🇩🇰',
+  Czech: '🇨🇿',
+  Romanian: '🇷🇴',
+  Hebrew: '🇮🇱',
+  Malay: '🇲🇾',
+  Filipino: '🇵🇭',
+};
+
+function FlagLabel({ language }: { language: Language }) {
+  return (
+    <span className="flag-label">
+      <span className="language-flag" aria-hidden="true">{languageFlags[language]}</span>
+      <span>{language}</span>
+    </span>
+  );
+}
+
 type PlayerProgress = {
   selectedLanguage: Language;
   questIndex: number;
@@ -139,6 +195,8 @@ type PlayerProgress = {
   lastDailyLessonDate: string | null;
   chestOpened: boolean;
   heartRefillAt: number | null;
+  country: string;
+  city: string;
 };
 
 type PlayerSettings = {
@@ -252,8 +310,8 @@ const defaultProgress: PlayerProgress = {
   hearts: maxHearts,
   score: 0,
   streak: 0,
-  xp: 0,
-  diamonds: 0,
+  xp: 100,
+  diamonds: 100,
   shopChests: 0,
   rarityChests: createEmptyRarityInventory(),
   streakFreezes: 0,
@@ -261,12 +319,30 @@ const defaultProgress: PlayerProgress = {
   lastDailyLessonDate: null,
   chestOpened: false,
   heartRefillAt: null,
+  country: '',
+  city: '',
 };
 const defaultSettings: PlayerSettings = {
   sound: false,
   hardMode: false,
   bossMode: false,
 };
+const countryOptions = [
+  'Kazakhstan',
+  'United States',
+  'United Kingdom',
+  'Turkey',
+  'Germany',
+  'France',
+  'Spain',
+  'Italy',
+  'Japan',
+  'South Korea',
+  'China',
+  'India',
+  'Brazil',
+  'Other',
+];
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -1031,6 +1107,174 @@ const topicQuests: Quest[] = [
   { language: 'Arabic', prompt: 'Health: Choose the Arabic word for "health".', answer: 'sihha', options: ['sihha', 'fariq', 'shasha', 'rasm'], hint: 'How well your body feels.', world: 'Health Oasis' },
 ];
 
+const newLanguageQuests: Quest[] = [
+  { language: 'Hindi', prompt: 'What does "namaste" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A common greeting.', world: 'Hindi Gate' },
+  { language: 'Hindi', prompt: 'Choose the Hindi word for "water".', answer: 'paani', options: ['paani', 'roti', 'dost', 'kitab'], hint: 'You drink it.', world: 'Water Stepwell' },
+  { language: 'Hindi', prompt: 'Translate "thank you" into Hindi.', answer: 'dhanyavaad', options: ['dhanyavaad', 'namaste', 'kripya', 'haan'], hint: 'A polite word after help.', world: 'Thanks Courtyard' },
+  { language: 'Hindi', prompt: 'What does "dost" mean?', answer: 'friend', options: ['friend', 'teacher', 'market', 'house'], hint: 'Someone you trust.', world: 'Friend Road' },
+  { language: 'Hindi', prompt: 'Choose the Hindi word for "book".', answer: 'kitab', options: ['kitab', 'ghar', 'seb', 'laal'], hint: 'You read it.', world: 'Library Gate' },
+  { language: 'Hindi', prompt: 'What does "ghar" mean?', answer: 'house', options: ['house', 'school', 'street', 'city'], hint: 'A place where you live.', world: 'Home Courtyard' },
+  { language: 'Hindi', prompt: 'Translate "good night".', answer: 'shubh raatri', options: ['shubh raatri', 'subah bakhair', 'phir milenge', 'maaf kijiye'], hint: 'A phrase before sleep.', world: 'Night Palace' },
+  { language: 'Hindi', prompt: 'What does "laal" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A color like a rose.', world: 'Color Market' },
+  { language: 'Hindi', prompt: 'Choose the Hindi word for "apple".', answer: 'seb', options: ['seb', 'doodh', 'roti', 'paani'], hint: 'A red or green fruit.', world: 'Apple Garden' },
+  { language: 'Hindi', prompt: 'Translate "excuse me".', answer: 'maaf kijiye', options: ['maaf kijiye', 'dhanyavaad', 'kripya', 'nahi'], hint: 'A polite interruption.', world: 'Polite Hall' },
+
+  { language: 'Turkish', prompt: 'What does "merhaba" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'yes'], hint: 'A friendly greeting.', world: 'Turkish Gate' },
+  { language: 'Turkish', prompt: 'Choose the Turkish word for "water".', answer: 'su', options: ['su', 'ekmek', 'kitap', 'arkadas'], hint: 'You drink it.', world: 'Blue Fountain' },
+  { language: 'Turkish', prompt: 'Translate "thank you" into Turkish.', answer: 'tesekkurler', options: ['tesekkurler', 'lutfen', 'affedersiniz', 'evet'], hint: 'A polite word after help.', world: 'Thanks Street' },
+  { language: 'Turkish', prompt: 'What does "arkadas" mean?', answer: 'friend', options: ['friend', 'doctor', 'teacher', 'house'], hint: 'Someone you like.', world: 'Friend Bridge' },
+  { language: 'Turkish', prompt: 'Choose the Turkish word for "book".', answer: 'kitap', options: ['kitap', 'ev', 'elma', 'kirmizi'], hint: 'You read it.', world: 'Book Bazaar' },
+  { language: 'Turkish', prompt: 'What does "ev" mean?', answer: 'house', options: ['house', 'school', 'market', 'road'], hint: 'A place where you live.', world: 'Home Hill' },
+  { language: 'Turkish', prompt: 'Translate "good morning".', answer: 'gunaydin', options: ['gunaydin', 'iyi geceler', 'hos geldiniz', 'gorusuruz'], hint: 'A daytime greeting.', world: 'Morning Bay' },
+  { language: 'Turkish', prompt: 'What does "kirmizi" mean?', answer: 'red', options: ['red', 'blue', 'green', 'white'], hint: 'The color of a tomato.', world: 'Color Bazaar' },
+  { language: 'Turkish', prompt: 'Choose the Turkish word for "apple".', answer: 'elma', options: ['elma', 'sut', 'ekmek', 'su'], hint: 'A red or green fruit.', world: 'Orchard Bay' },
+  { language: 'Turkish', prompt: 'Translate "excuse me".', answer: 'affedersiniz', options: ['affedersiniz', 'lutfen', 'tesekkurler', 'hayir'], hint: 'A polite interruption.', world: 'Polite Bridge' },
+
+  { language: 'Swedish', prompt: 'What does "hej" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A common greeting.', world: 'Swedish Harbor' },
+  { language: 'Swedish', prompt: 'Choose the Swedish word for "water".', answer: 'vatten', options: ['vatten', 'brod', 'bok', 'van'], hint: 'You drink it.', world: 'Lake Path' },
+  { language: 'Swedish', prompt: 'Translate "thank you" into Swedish.', answer: 'tack', options: ['tack', 'hej', 'snalla', 'ja'], hint: 'A polite word after help.', world: 'Thanks Dock' },
+  { language: 'Swedish', prompt: 'What does "van" mean?', answer: 'friend', options: ['friend', 'teacher', 'city', 'house'], hint: 'Someone you trust.', world: 'Friend Fjord' },
+  { language: 'Swedish', prompt: 'Choose the Swedish word for "book".', answer: 'bok', options: ['bok', 'hus', 'apple', 'rod'], hint: 'You read it.', world: 'Book Cabin' },
+  { language: 'Swedish', prompt: 'What does "hus" mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where people live.', world: 'Home Cabin' },
+  { language: 'Swedish', prompt: 'Translate "good night".', answer: 'god natt', options: ['god natt', 'god morgon', 'valkommen', 'hej da'], hint: 'A phrase before sleep.', world: 'Northern Night' },
+  { language: 'Swedish', prompt: 'What does "rod" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Red Cabin' },
+  { language: 'Swedish', prompt: 'Choose the Swedish word for "school".', answer: 'skola', options: ['skola', 'sjukhus', 'marknad', 'gata'], hint: 'A place to learn.', world: 'School Harbor' },
+  { language: 'Swedish', prompt: 'Translate "excuse me".', answer: 'ursakta', options: ['ursakta', 'tack', 'snalla', 'nej'], hint: 'A polite interruption.', world: 'Polite Dock' },
+
+  { language: 'Dutch', prompt: 'What does "hallo" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'yes'], hint: 'A greeting.', world: 'Dutch Canal' },
+  { language: 'Dutch', prompt: 'Choose the Dutch word for "water".', answer: 'water', options: ['water', 'brood', 'boek', 'vriend'], hint: 'You drink it.', world: 'Canal Water' },
+  { language: 'Dutch', prompt: 'Translate "thank you" into Dutch.', answer: 'dank je', options: ['dank je', 'alsjeblieft', 'sorry', 'ja'], hint: 'A polite word after help.', world: 'Thanks Canal' },
+  { language: 'Dutch', prompt: 'What does "vriend" mean?', answer: 'friend', options: ['friend', 'doctor', 'teacher', 'house'], hint: 'Someone you trust.', world: 'Friend Bridge' },
+  { language: 'Dutch', prompt: 'Choose the Dutch word for "book".', answer: 'boek', options: ['boek', 'huis', 'appel', 'rood'], hint: 'You read it.', world: 'Book House' },
+  { language: 'Dutch', prompt: 'What does "huis" mean?', answer: 'house', options: ['house', 'school', 'market', 'road'], hint: 'A place where you live.', world: 'Home Canal' },
+  { language: 'Dutch', prompt: 'Translate "good morning".', answer: 'goedemorgen', options: ['goedemorgen', 'goedenacht', 'welkom', 'tot ziens'], hint: 'A daytime greeting.', world: 'Morning Canal' },
+  { language: 'Dutch', prompt: 'What does "rood" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A color like a rose.', world: 'Color Canal' },
+  { language: 'Dutch', prompt: 'Choose the Dutch word for "apple".', answer: 'appel', options: ['appel', 'melk', 'brood', 'water'], hint: 'A red or green fruit.', world: 'Orchard Canal' },
+  { language: 'Dutch', prompt: 'Translate "excuse me".', answer: 'sorry', options: ['sorry', 'dank je', 'alsjeblieft', 'nee'], hint: 'A polite interruption.', world: 'Polite Canal' },
+
+  { language: 'Vietnamese', prompt: 'What does "xin chao" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A greeting.', world: 'Vietnamese Market' },
+  { language: 'Vietnamese', prompt: 'Choose the Vietnamese word for "water".', answer: 'nuoc', options: ['nuoc', 'banh mi', 'sach', 'ban'], hint: 'You drink it.', world: 'River Market' },
+  { language: 'Vietnamese', prompt: 'Translate "thank you" into Vietnamese.', answer: 'cam on', options: ['cam on', 'xin chao', 'lam on', 'vang'], hint: 'A polite word after help.', world: 'Thanks Market' },
+  { language: 'Vietnamese', prompt: 'What does "ban" mean?', answer: 'friend', options: ['friend', 'teacher', 'city', 'house'], hint: 'Someone you trust.', world: 'Friend Market' },
+  { language: 'Vietnamese', prompt: 'Choose the Vietnamese word for "book".', answer: 'sach', options: ['sach', 'nha', 'tao', 'do'], hint: 'You read it.', world: 'Book Market' },
+  { language: 'Vietnamese', prompt: 'What does "nha" mean?', answer: 'house', options: ['house', 'school', 'market', 'street'], hint: 'A place where you live.', world: 'Home Market' },
+  { language: 'Vietnamese', prompt: 'Translate "good morning".', answer: 'chao buoi sang', options: ['chao buoi sang', 'chuc ngu ngon', 'tam biet', 'xin loi'], hint: 'A daytime greeting.', world: 'Morning River' },
+  { language: 'Vietnamese', prompt: 'What does "do" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A color like a rose.', world: 'Color Market' },
+  { language: 'Vietnamese', prompt: 'Choose the Vietnamese word for "apple".', answer: 'tao', options: ['tao', 'sua', 'banh mi', 'nuoc'], hint: 'A red or green fruit.', world: 'Orchard Market' },
+  { language: 'Vietnamese', prompt: 'Translate "excuse me".', answer: 'xin loi', options: ['xin loi', 'cam on', 'lam on', 'khong'], hint: 'A polite interruption.', world: 'Polite Market' },
+];
+
+const moreLanguageQuests: Quest[] = [
+  { language: 'Polish', prompt: 'What does "czesc" mean?', answer: 'hello', options: ['hello', 'goodbye', 'water', 'book'], hint: 'A friendly greeting.', world: 'Polish Square' },
+  { language: 'Polish', prompt: 'Choose the Polish word for "water".', answer: 'woda', options: ['woda', 'chleb', 'ksiazka', 'dom'], hint: 'You drink it.', world: 'River Square' },
+  { language: 'Polish', prompt: 'Translate "thank you" into Polish.', answer: 'dziekuje', options: ['dziekuje', 'prosze', 'tak', 'nie'], hint: 'A polite word after help.', world: 'Thanks Square' },
+  { language: 'Polish', prompt: 'What does "dom" mean?', answer: 'house', options: ['house', 'school', 'friend', 'apple'], hint: 'A place where you live.', world: 'Home Square' },
+  { language: 'Polish', prompt: 'Choose the Polish word for "friend".', answer: 'przyjaciel', options: ['przyjaciel', 'nauczyciel', 'miasto', 'pies'], hint: 'Someone you trust.', world: 'Friend Square' },
+  { language: 'Polish', prompt: 'What does "czerwony" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Color Square' },
+  { language: 'Polish', prompt: 'Choose the Polish word for "school".', answer: 'szkola', options: ['szkola', 'rynek', 'droga', 'okno'], hint: 'A place to learn.', world: 'School Square' },
+  { language: 'Polish', prompt: 'Translate "good night".', answer: 'dobranoc', options: ['dobranoc', 'dzien dobry', 'do widzenia', 'przepraszam'], hint: 'A phrase before sleep.', world: 'Night Square' },
+
+  { language: 'Greek', prompt: 'What does "yassou" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A friendly greeting.', world: 'Greek Island' },
+  { language: 'Greek', prompt: 'Choose the Greek word for "water".', answer: 'nero', options: ['nero', 'psomi', 'vivlio', 'spiti'], hint: 'You drink it.', world: 'Blue Island' },
+  { language: 'Greek', prompt: 'Translate "thank you" into Greek.', answer: 'efharisto', options: ['efharisto', 'parakalo', 'nai', 'ochi'], hint: 'A polite word after help.', world: 'Thanks Island' },
+  { language: 'Greek', prompt: 'What does "spiti" mean?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Island' },
+  { language: 'Greek', prompt: 'Choose the Greek word for "friend".', answer: 'filos', options: ['filos', 'daskalos', 'poli', 'skylos'], hint: 'Someone you like.', world: 'Friend Island' },
+  { language: 'Greek', prompt: 'What does "kokkino" mean?', answer: 'red', options: ['red', 'blue', 'green', 'white'], hint: 'A warm color.', world: 'Color Island' },
+  { language: 'Greek', prompt: 'Choose the Greek word for "book".', answer: 'vivlio', options: ['vivlio', 'milo', 'nero', 'psomi'], hint: 'You read it.', world: 'Book Island' },
+  { language: 'Greek', prompt: 'Translate "excuse me".', answer: 'signomi', options: ['signomi', 'efharisto', 'parakalo', 'ochi'], hint: 'A polite interruption.', world: 'Polite Island' },
+
+  { language: 'Indonesian', prompt: 'What does "halo" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A greeting.', world: 'Island Market' },
+  { language: 'Indonesian', prompt: 'Choose the Indonesian word for "water".', answer: 'air', options: ['air', 'roti', 'buku', 'teman'], hint: 'You drink it.', world: 'Water Market' },
+  { language: 'Indonesian', prompt: 'Translate "thank you" into Indonesian.', answer: 'terima kasih', options: ['terima kasih', 'tolong', 'ya', 'tidak'], hint: 'A polite word after help.', world: 'Thanks Market' },
+  { language: 'Indonesian', prompt: 'What does "rumah" mean?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Market' },
+  { language: 'Indonesian', prompt: 'Choose the Indonesian word for "friend".', answer: 'teman', options: ['teman', 'guru', 'kota', 'anjing'], hint: 'Someone you trust.', world: 'Friend Market' },
+  { language: 'Indonesian', prompt: 'What does "merah" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A color like a rose.', world: 'Color Market' },
+  { language: 'Indonesian', prompt: 'Choose the Indonesian word for "book".', answer: 'buku', options: ['buku', 'apel', 'air', 'roti'], hint: 'You read it.', world: 'Book Market' },
+  { language: 'Indonesian', prompt: 'Translate "good morning".', answer: 'selamat pagi', options: ['selamat pagi', 'selamat malam', 'sampai jumpa', 'maaf'], hint: 'A daytime greeting.', world: 'Morning Market' },
+
+  { language: 'Thai', prompt: 'What does "sawasdee" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A greeting.', world: 'Thai Temple' },
+  { language: 'Thai', prompt: 'Choose the Thai word for "water".', answer: 'nam', options: ['nam', 'khanom pang', 'nangsue', 'phuean'], hint: 'You drink it.', world: 'Water Temple' },
+  { language: 'Thai', prompt: 'Translate "thank you" into Thai.', answer: 'khop khun', options: ['khop khun', 'karuna', 'chai', 'mai'], hint: 'A polite word after help.', world: 'Thanks Temple' },
+  { language: 'Thai', prompt: 'What does "baan" mean?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Temple' },
+  { language: 'Thai', prompt: 'Choose the Thai word for "friend".', answer: 'phuean', options: ['phuean', 'khru', 'mueang', 'ma'], hint: 'Someone you trust.', world: 'Friend Temple' },
+  { language: 'Thai', prompt: 'What does "daeng" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Color Temple' },
+  { language: 'Thai', prompt: 'Choose the Thai word for "book".', answer: 'nangsue', options: ['nangsue', 'phonlamai', 'nam', 'baan'], hint: 'You read it.', world: 'Book Temple' },
+  { language: 'Thai', prompt: 'Translate "excuse me".', answer: 'kho thot', options: ['kho thot', 'khop khun', 'karuna', 'mai'], hint: 'A polite interruption.', world: 'Polite Temple' },
+
+  { language: 'Ukrainian', prompt: 'What does "pryvit" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A friendly greeting.', world: 'Ukrainian Field' },
+  { language: 'Ukrainian', prompt: 'Choose the Ukrainian word for "water".', answer: 'voda', options: ['voda', 'khlib', 'knyha', 'dim'], hint: 'You drink it.', world: 'River Field' },
+  { language: 'Ukrainian', prompt: 'Translate "thank you" into Ukrainian.', answer: 'dyakuyu', options: ['dyakuyu', 'bud laska', 'tak', 'ni'], hint: 'A polite word after help.', world: 'Thanks Field' },
+  { language: 'Ukrainian', prompt: 'What does "dim" mean?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Field' },
+  { language: 'Ukrainian', prompt: 'Choose the Ukrainian word for "friend".', answer: 'druh', options: ['druh', 'uchytel', 'misto', 'pes'], hint: 'Someone you trust.', world: 'Friend Field' },
+  { language: 'Ukrainian', prompt: 'What does "chervonyi" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Color Field' },
+  { language: 'Ukrainian', prompt: 'Choose the Ukrainian word for "book".', answer: 'knyha', options: ['knyha', 'yabluko', 'voda', 'khlib'], hint: 'You read it.', world: 'Book Field' },
+  { language: 'Ukrainian', prompt: 'Translate "good night".', answer: 'nadobranich', options: ['nadobranich', 'dobryi ranok', 'do pobachennia', 'vybachte'], hint: 'A phrase before sleep.', world: 'Night Field' },
+
+  { language: 'Finnish', prompt: 'What does "hei" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A greeting.', world: 'Finnish Lake' },
+  { language: 'Finnish', prompt: 'Choose the Finnish word for "water".', answer: 'vesi', options: ['vesi', 'leipa', 'kirja', 'ystava'], hint: 'You drink it.', world: 'Lake Water' },
+  { language: 'Finnish', prompt: 'Translate "thank you" into Finnish.', answer: 'kiitos', options: ['kiitos', 'ole hyva', 'kylla', 'ei'], hint: 'A polite word after help.', world: 'Thanks Lake' },
+  { language: 'Finnish', prompt: 'What does "talo" mean?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Lake' },
+  { language: 'Finnish', prompt: 'Choose the Finnish word for "friend".', answer: 'ystava', options: ['ystava', 'opettaja', 'kaupunki', 'koira'], hint: 'Someone you trust.', world: 'Friend Lake' },
+  { language: 'Finnish', prompt: 'What does "punainen" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Color Lake' },
+  { language: 'Finnish', prompt: 'Choose the Finnish word for "book".', answer: 'kirja', options: ['kirja', 'omena', 'vesi', 'leipa'], hint: 'You read it.', world: 'Book Lake' },
+  { language: 'Finnish', prompt: 'Translate "good night".', answer: 'hyvaa yota', options: ['hyvaa yota', 'hyvaa huomenta', 'nakemiin', 'anteeksi'], hint: 'A phrase before sleep.', world: 'Night Lake' },
+
+  { language: 'Norwegian', prompt: 'What does "hei" mean in Norwegian?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A greeting.', world: 'Norwegian Fjord' },
+  { language: 'Norwegian', prompt: 'Choose the Norwegian word for "water".', answer: 'vann', options: ['vann', 'brod', 'bok', 'venn'], hint: 'You drink it.', world: 'Fjord Water' },
+  { language: 'Norwegian', prompt: 'Translate "thank you" into Norwegian.', answer: 'takk', options: ['takk', 'vaer sa snill', 'ja', 'nei'], hint: 'A polite word after help.', world: 'Thanks Fjord' },
+  { language: 'Norwegian', prompt: 'What does "hus" mean in Norwegian?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Fjord' },
+  { language: 'Norwegian', prompt: 'Choose the Norwegian word for "friend".', answer: 'venn', options: ['venn', 'laerer', 'by', 'hund'], hint: 'Someone you trust.', world: 'Friend Fjord' },
+  { language: 'Norwegian', prompt: 'What does "rod" mean in Norwegian?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Color Fjord' },
+  { language: 'Norwegian', prompt: 'Choose the Norwegian word for "book".', answer: 'bok', options: ['bok', 'eple', 'vann', 'brod'], hint: 'You read it.', world: 'Book Fjord' },
+  { language: 'Norwegian', prompt: 'Translate "good night".', answer: 'god natt', options: ['god natt', 'god morgen', 'ha det', 'unnskyld'], hint: 'A phrase before sleep.', world: 'Night Fjord' },
+
+  { language: 'Danish', prompt: 'What does "hej" mean in Danish?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A greeting.', world: 'Danish Harbor' },
+  { language: 'Danish', prompt: 'Choose the Danish word for "water".', answer: 'vand', options: ['vand', 'brod', 'bog', 'ven'], hint: 'You drink it.', world: 'Harbor Water' },
+  { language: 'Danish', prompt: 'Translate "thank you" into Danish.', answer: 'tak', options: ['tak', 'vaer venlig', 'ja', 'nej'], hint: 'A polite word after help.', world: 'Thanks Harbor' },
+  { language: 'Danish', prompt: 'What does "hus" mean in Danish?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Harbor' },
+  { language: 'Danish', prompt: 'Choose the Danish word for "friend".', answer: 'ven', options: ['ven', 'laerer', 'by', 'hund'], hint: 'Someone you trust.', world: 'Friend Harbor' },
+  { language: 'Danish', prompt: 'What does "rod" mean in Danish?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Color Harbor' },
+  { language: 'Danish', prompt: 'Choose the Danish word for "book".', answer: 'bog', options: ['bog', 'aeble', 'vand', 'brod'], hint: 'You read it.', world: 'Book Harbor' },
+  { language: 'Danish', prompt: 'Translate "good night".', answer: 'godnat', options: ['godnat', 'godmorgen', 'farvel', 'undskyld'], hint: 'A phrase before sleep.', world: 'Night Harbor' },
+];
+
+const evenMoreLanguageQuests: Quest[] = [
+  { language: 'Czech', prompt: 'What does "ahoj" mean?', answer: 'hello', options: ['hello', 'goodbye', 'water', 'book'], hint: 'A friendly greeting.', world: 'Czech Bridge' },
+  { language: 'Czech', prompt: 'Choose the Czech word for "water".', answer: 'voda', options: ['voda', 'chleb', 'kniha', 'dum'], hint: 'You drink it.', world: 'River Bridge' },
+  { language: 'Czech', prompt: 'Translate "thank you" into Czech.', answer: 'dekuji', options: ['dekuji', 'prosim', 'ano', 'ne'], hint: 'A polite word after help.', world: 'Thanks Bridge' },
+  { language: 'Czech', prompt: 'What does "dum" mean?', answer: 'house', options: ['house', 'school', 'friend', 'apple'], hint: 'A place where you live.', world: 'Home Bridge' },
+  { language: 'Czech', prompt: 'Choose the Czech word for "friend".', answer: 'pritel', options: ['pritel', 'ucitel', 'mesto', 'pes'], hint: 'Someone you trust.', world: 'Friend Bridge' },
+  { language: 'Czech', prompt: 'Translate "good night".', answer: 'dobrou noc', options: ['dobrou noc', 'dobre rano', 'nashledanou', 'prominte'], hint: 'A phrase before sleep.', world: 'Night Bridge' },
+
+  { language: 'Romanian', prompt: 'What does "salut" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A friendly greeting.', world: 'Romanian Hill' },
+  { language: 'Romanian', prompt: 'Choose the Romanian word for "water".', answer: 'apa', options: ['apa', 'paine', 'carte', 'casa'], hint: 'You drink it.', world: 'Water Hill' },
+  { language: 'Romanian', prompt: 'Translate "thank you" into Romanian.', answer: 'multumesc', options: ['multumesc', 'te rog', 'da', 'nu'], hint: 'A polite word after help.', world: 'Thanks Hill' },
+  { language: 'Romanian', prompt: 'What does "casa" mean in Romanian?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Hill' },
+  { language: 'Romanian', prompt: 'Choose the Romanian word for "friend".', answer: 'prieten', options: ['prieten', 'profesor', 'oras', 'caine'], hint: 'Someone you like.', world: 'Friend Hill' },
+  { language: 'Romanian', prompt: 'What does "rosu" mean?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Color Hill' },
+
+  { language: 'Hebrew', prompt: 'What does "shalom" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A greeting that can also mean peace.', world: 'Hebrew Gate' },
+  { language: 'Hebrew', prompt: 'Choose the Hebrew word for "water".', answer: 'mayim', options: ['mayim', 'lechem', 'sefer', 'bayit'], hint: 'You drink it.', world: 'Water Gate' },
+  { language: 'Hebrew', prompt: 'Translate "thank you" into Hebrew.', answer: 'toda', options: ['toda', 'bevakasha', 'ken', 'lo'], hint: 'A polite word after help.', world: 'Thanks Gate' },
+  { language: 'Hebrew', prompt: 'What does "bayit" mean?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Gate' },
+  { language: 'Hebrew', prompt: 'Choose the Hebrew word for "friend".', answer: 'chaver', options: ['chaver', 'moreh', 'ir', 'kelev'], hint: 'Someone you trust.', world: 'Friend Gate' },
+  { language: 'Hebrew', prompt: 'Translate "good morning".', answer: 'boker tov', options: ['boker tov', 'layla tov', 'lehitraot', 'slicha'], hint: 'A daytime greeting.', world: 'Morning Gate' },
+
+  { language: 'Malay', prompt: 'What does "halo" mean in Malay?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A greeting.', world: 'Malay Coast' },
+  { language: 'Malay', prompt: 'Choose the Malay word for "water".', answer: 'air', options: ['air', 'roti', 'buku', 'kawan'], hint: 'You drink it.', world: 'Water Coast' },
+  { language: 'Malay', prompt: 'Translate "thank you" into Malay.', answer: 'terima kasih', options: ['terima kasih', 'tolong', 'ya', 'tidak'], hint: 'A polite word after help.', world: 'Thanks Coast' },
+  { language: 'Malay', prompt: 'What does "rumah" mean in Malay?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Coast' },
+  { language: 'Malay', prompt: 'Choose the Malay word for "friend".', answer: 'kawan', options: ['kawan', 'guru', 'bandar', 'anjing'], hint: 'Someone you trust.', world: 'Friend Coast' },
+  { language: 'Malay', prompt: 'What does "merah" mean in Malay?', answer: 'red', options: ['red', 'blue', 'green', 'yellow'], hint: 'A warm color.', world: 'Color Coast' },
+
+  { language: 'Filipino', prompt: 'What does "kumusta" mean?', answer: 'hello', options: ['hello', 'goodbye', 'thank you', 'water'], hint: 'A friendly greeting.', world: 'Filipino Bay' },
+  { language: 'Filipino', prompt: 'Choose the Filipino word for "water".', answer: 'tubig', options: ['tubig', 'tinapay', 'libro', 'kaibigan'], hint: 'You drink it.', world: 'Water Bay' },
+  { language: 'Filipino', prompt: 'Translate "thank you" into Filipino.', answer: 'salamat', options: ['salamat', 'pakiusap', 'oo', 'hindi'], hint: 'A polite word after help.', world: 'Thanks Bay' },
+  { language: 'Filipino', prompt: 'What does "bahay" mean?', answer: 'house', options: ['house', 'school', 'market', 'friend'], hint: 'A place where you live.', world: 'Home Bay' },
+  { language: 'Filipino', prompt: 'Choose the Filipino word for "friend".', answer: 'kaibigan', options: ['kaibigan', 'guro', 'lungsod', 'aso'], hint: 'Someone you trust.', world: 'Friend Bay' },
+  { language: 'Filipino', prompt: 'Translate "good night".', answer: 'magandang gabi', options: ['magandang gabi', 'magandang umaga', 'paalam', 'pasensya'], hint: 'A phrase for the evening or night.', world: 'Night Bay' },
+];
+
 const hardLanguageQuests: Quest[] = [
   { language: 'Kazakh', prompt: 'Hard: What does "evidence" mean?', answer: 'dalel', options: ['dalel', 'qalgan', 'arzan', 'zharys'], hint: 'Proof that helps show something is true.', world: 'Proof Ridge' },
   { language: 'Kazakh', prompt: 'Hard: Choose the English word for "mindet".', answer: 'responsibility', options: ['responsibility', 'weather', 'shortcut', 'blanket'], hint: 'A duty you should take care of.', world: 'Duty Gate' },
@@ -1062,6 +1306,9 @@ const quests: Quest[] = [
   ...kazakhQuests.map((quest) => ({ ...quest, language: 'Kazakh' as const })),
   ...extraLanguageQuests,
   ...topicQuests,
+  ...newLanguageQuests,
+  ...moreLanguageQuests,
+  ...evenMoreLanguageQuests,
 ];
 const allQuests = [...quests, ...hardLanguageQuests];
 const availableLanguages: Exclude<Language, 'All'>[] = Array.from(new Set(allQuests.map((quest) => quest.language)));
@@ -1159,6 +1406,93 @@ const topicLessonPacks: LessonPack[] = [
     keywords: ['thank you', 'excuse me', 'please', 'sorry', 'polite', 'gracias', 'merci', 'danke'],
   },
   {
+    id: 'shopping',
+    title: 'Shopping',
+    description: 'Market, food, colors, numbers, and useful shop words.',
+    keywords: ['market', 'food', 'apple', 'bread', 'milk', 'red', 'water', 'buy', 'shop', 'bazaar'],
+  },
+  {
+    id: 'travel-phrases',
+    title: 'Travel phrases',
+    description: 'Ready, welcome, roads, cities, and polite travel phrases.',
+    keywords: ['travel', 'road', 'city', 'welcome', 'ready', 'excuse me', 'good morning', 'good night', 'street'],
+  },
+  {
+    id: 'friends-family',
+    title: 'Friends & family',
+    description: 'Practice people words, home phrases, and warm everyday sentences.',
+    keywords: ['friend', 'family', 'house', 'home', 'teacher', 'student', 'love', 'like', 'happy'],
+  },
+  {
+    id: 'review-mix',
+    title: 'Review mix',
+    description: 'A mixed review lesson across common beginner words.',
+    keywords: ['hello', 'water', 'thank you', 'friend', 'book', 'house', 'school', 'red', 'apple', 'excuse me'],
+  },
+  {
+    id: 'starter-50',
+    title: 'Starter 50',
+    description: 'Fast review from many languages with the most useful beginner words.',
+    keywords: ['hello', 'water', 'thank you', 'friend', 'book', 'house', 'school', 'good night', 'good morning'],
+    size: 10,
+  },
+  {
+    id: 'northern-languages',
+    title: 'Northern languages',
+    description: 'Swedish, Finnish, Norwegian, and Danish starter practice.',
+    keywords: ['hej', 'hei', 'vesi', 'vann', 'vand', 'takk', 'tak', 'kiitos', 'fjord', 'lake', 'harbor'],
+    size: 10,
+  },
+  {
+    id: 'asia-starter',
+    title: 'Asia starter',
+    description: 'Hindi, Indonesian, Thai, Vietnamese, Japanese, Chinese, and Korean basics.',
+    keywords: ['namaste', 'halo', 'sawasdee', 'xin chao', 'paani', 'air', 'nam', 'nuoc', 'friend', 'book'],
+    size: 10,
+  },
+  {
+    id: 'europe-starter',
+    title: 'Europe starter',
+    description: 'Polish, Greek, Ukrainian, Dutch, German, French, Italian, and Spanish basics.',
+    keywords: ['czesc', 'yassou', 'pryvit', 'hallo', 'bonjour', 'hola', 'dom', 'spiti', 'huis', 'friend'],
+    size: 10,
+  },
+  {
+    id: 'more-europe',
+    title: 'More Europe',
+    description: 'Czech, Romanian, Greek, Polish, and Ukrainian starter words.',
+    keywords: ['ahoj', 'salut', 'czesc', 'yassou', 'pryvit', 'dekuji', 'multumesc', 'dom', 'dum'],
+    size: 10,
+  },
+  {
+    id: 'island-languages',
+    title: 'Island languages',
+    description: 'Indonesian, Malay, Filipino, Thai, and Vietnamese basics.',
+    keywords: ['halo', 'kumusta', 'sawasdee', 'xin chao', 'air', 'tubig', 'nam', 'nuoc', 'rumah'],
+    size: 10,
+  },
+  {
+    id: 'thank-you-world',
+    title: 'Thank you world',
+    description: 'Practice thank-you phrases across many languages.',
+    keywords: ['thank you', 'gracias', 'merci', 'danke', 'tack', 'tak', 'toda', 'salamat', 'dziekuje', 'kiitos'],
+    size: 10,
+  },
+  {
+    id: 'home-around-world',
+    title: 'Home around world',
+    description: 'House and home words from many languages.',
+    keywords: ['house', 'home', 'casa', 'dom', 'dum', 'bayit', 'rumah', 'bahay', 'talo', 'hus'],
+    size: 10,
+  },
+  {
+    id: 'night-morning',
+    title: 'Morning & night',
+    description: 'Practice greetings for starting and ending the day.',
+    keywords: ['good morning', 'good night', 'morgen', 'natt', 'night', 'morning', 'pagi', 'raat', 'dobranoc'],
+    size: 10,
+  },
+  {
     id: 'technology',
     title: 'Technology',
     description: 'Computer, screen, keyboard, and useful digital words.',
@@ -1217,38 +1551,6 @@ const languageLessonPacks: LessonPack[] = availableLanguages.map((language) => (
   language,
 }));
 
-const languageLessonTemplates = [
-  {
-    id: 'basics',
-    title: 'Basics',
-    description: 'Greetings, thanks, friends, home, school, food, and books.',
-    keywords: ['hello', 'thank you', 'friend', 'house', 'school', 'food', 'water', 'book', 'no'],
-  },
-  {
-    id: 'phrases',
-    title: 'Phrases',
-    description: 'Useful mini phrases for polite and everyday conversations.',
-    keywords: ['good morning', 'good night', 'ready', 'excuse me', 'I love it', 'welcome', 'goodbye'],
-  },
-  {
-    id: 'nature',
-    title: 'Nature',
-    description: 'Sun, moon, trees, rivers, colors, and outdoor words.',
-    keywords: ['sun', 'moon', 'tree', 'river', 'sea', 'green', 'red', 'water', 'sky'],
-  },
-] satisfies Omit<LessonPack, 'language'>[];
-
-const focusedLanguageLessonPacks: LessonPack[] = availableLanguages.flatMap((language) =>
-  languageLessonTemplates.map((template) => ({
-    ...template,
-    id: `language-${language.toLowerCase()}-${template.id}`,
-    title: `${language} ${template.title}`,
-    description: `${template.description} 10 ${language} questions.`,
-    language,
-    size: 10,
-  })),
-);
-
 const miniLanguageLessonPacks: LessonPack[] = [
   {
     id: 'language-kazakh-mini',
@@ -1279,9 +1581,40 @@ const miniLanguageLessonPacks: LessonPack[] = [
 const lessonPacks: LessonPack[] = [
   ...topicLessonPacks,
   ...languageLessonPacks,
-  ...focusedLanguageLessonPacks,
   ...miniLanguageLessonPacks,
 ];
+
+type LessonAlbumId = 'topics' | 'languages' | 'world' | 'challenge';
+
+const lessonAlbums: { id: LessonAlbumId; title: string; description: string }[] = [
+  { id: 'topics', title: 'Topics', description: 'Daily words, travel, food, grammar, and practice themes.' },
+  { id: 'languages', title: 'Languages', description: 'One random album for each language.' },
+  { id: 'world', title: 'World albums', description: 'Regions, greetings, home, and review mixes.' },
+  { id: 'challenge', title: 'Challenge', description: 'Hard words, skills, tech, health, sports, and art.' },
+];
+
+function getLessonAlbumId(pack: LessonPack): LessonAlbumId {
+  if (pack.language) return 'languages';
+  if (['a3', 'hard-words', 'technology', 'health', 'sports', 'art'].includes(pack.id)) return 'challenge';
+  if (
+    [
+      'starter-50',
+      'northern-languages',
+      'asia-starter',
+      'europe-starter',
+      'more-europe',
+      'island-languages',
+      'thank-you-world',
+      'home-around-world',
+      'night-morning',
+      'review-mix',
+    ].includes(pack.id)
+  ) {
+    return 'world';
+  }
+
+  return 'topics';
+}
 
 const languageCards = availableLanguages.map((language) => ({
   language,
@@ -1321,9 +1654,11 @@ function getRandomLessonQuestions(packId: LessonPackId, hardMode = false) {
 
 export default function App() {
   const [view, setView] = useState<View>('quest');
+  const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('language-quest-player') || '');
   const [oauthUserId, setOauthUserId] = useState(() => localStorage.getItem(oauthPlayerKey) || '');
   const [selectedLessonPack, setSelectedLessonPack] = useState<LessonPackId | null>(null);
+  const [selectedLessonAlbum, setSelectedLessonAlbum] = useState<LessonAlbumId>('topics');
   const [selectedLessonQuests, setSelectedLessonQuests] = useState<Quest[] | null>(null);
   const [lessonStreakAwarded, setLessonStreakAwarded] = useState(false);
   const [authName, setAuthName] = useState('');
@@ -1341,6 +1676,14 @@ export default function App() {
     }
 
     return savedPlayer && accounts[savedPlayer] ? accounts[savedPlayer].avatarUrl ?? '' : '';
+  });
+  const [country, setCountry] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.country ?? defaultProgress.country;
+  });
+  const [city, setCity] = useState(() => {
+    const progress = readStoredProgress();
+    return progress.city ?? defaultProgress.city;
   });
   const [settings, setSettings] = useState<PlayerSettings>(() => {
     const accounts = readAccounts();
@@ -1432,6 +1775,11 @@ export default function App() {
   const currentQuest = activeQuests[questIndex];
   const currentOptions = useMemo(() => (currentQuest ? shuffleOptions(currentQuest.options) : []), [currentQuest]);
   const selectedLesson = selectedLessonPack ? lessonPacks.find((lessonPack) => lessonPack.id === selectedLessonPack) ?? null : null;
+  const visibleLessonPacks = useMemo(
+    () => lessonPacks.filter((lessonPack) => getLessonAlbumId(lessonPack) === selectedLessonAlbum),
+    [selectedLessonAlbum],
+  );
+  const selectedLessonAlbumInfo = lessonAlbums.find((album) => album.id === selectedLessonAlbum) ?? lessonAlbums[0];
   const isLessonRun = Boolean(selectedLessonPack);
   const isComplete = questIndex >= activeQuests.length;
   const progress = activeQuests.length > 0 ? Math.round((questIndex / activeQuests.length) * 100) : 0;
@@ -1510,6 +1858,8 @@ export default function App() {
       lastDailyLessonDate,
       chestOpened,
       heartRefillAt,
+      country,
+      city,
     };
 
     if (oauthUserId) {
@@ -1534,7 +1884,7 @@ export default function App() {
     localStorage.removeItem('language-quest-player');
     localStorage.setItem(guestProgressKey, JSON.stringify(progress));
     localStorage.setItem(guestSettingsKey, JSON.stringify(settings));
-  }, [activeQuests.length, chestOpened, diamonds, heartRefillAt, hearts, lastDailyLessonDate, oauthUserId, playerName, profileImageUrl, questIndex, rarityChests, score, selectedLanguage, settings, shopChests, streak, streakFreezes, streakShieldUntil, xp]);
+  }, [activeQuests.length, chestOpened, city, country, diamonds, heartRefillAt, hearts, lastDailyLessonDate, oauthUserId, playerName, profileImageUrl, questIndex, rarityChests, score, selectedLanguage, settings, shopChests, streak, streakFreezes, streakShieldUntil, xp]);
 
   useEffect(() => {
     if (questIndex > activeQuests.length) {
@@ -1642,6 +1992,8 @@ export default function App() {
       lastDailyLessonDate,
       chestOpened,
       heartRefillAt,
+      country,
+      city,
     };
   }
 
@@ -1952,6 +2304,8 @@ export default function App() {
     setStreakShieldUntil(dailyCheckedProgress.streakShieldUntil ?? defaultProgress.streakShieldUntil);
     setLastDailyLessonDate(dailyCheckedProgress.lastDailyLessonDate ?? defaultProgress.lastDailyLessonDate);
     setChestOpened(dailyCheckedProgress.chestOpened ?? defaultProgress.chestOpened);
+    setCountry(dailyCheckedProgress.country ?? defaultProgress.country);
+    setCity(dailyCheckedProgress.city ?? defaultProgress.city);
     setSettings(nextSettings);
     setSelected(null);
     setShowHint(false);
@@ -2034,6 +2388,8 @@ export default function App() {
       lastDailyLessonDate,
       chestOpened,
       heartRefillAt,
+      country,
+      city,
     };
 
     accounts[name] = {
@@ -2076,6 +2432,8 @@ export default function App() {
     setStreakShieldUntil(defaultProgress.streakShieldUntil);
     setLastDailyLessonDate(defaultProgress.lastDailyLessonDate);
     setChestOpened(defaultProgress.chestOpened);
+    setCountry(defaultProgress.country);
+    setCity(defaultProgress.city);
 
     if (!playerName) {
       localStorage.setItem(guestProgressKey, JSON.stringify(defaultProgress));
@@ -2091,6 +2449,13 @@ export default function App() {
 
   return (
     <main className="game-shell">
+      {showWelcomeScreen && (
+        <button className="welcome-screen" type="button" onClick={() => setShowWelcomeScreen(false)}>
+          <span className="eyebrow">Language Quest</span>
+          <strong>Welcome</strong>
+          <span>Click to continue</span>
+        </button>
+      )}
       {rewardAnimation && (
         <div className="reward-pop" role="status" aria-live="polite">
           <span>{rewardAnimation}</span>
@@ -2155,6 +2520,7 @@ export default function App() {
           <ProfileAvatar name={playerName || 'Guest'} imageUrl={profileImageUrl} />
           <p>
             {playerName ? `Playing as ${playerName}. Progress saves to this profile.` : 'Playing as Guest. Progress saves on this device.'}
+            {(city || country) && <span className="player-location"> {city}{city && country ? ', ' : ''}{country}</span>}
           </p>
           {!playerName && (
             <button className="google-signin-button" type="button" onClick={() => void signInWithGoogle()}>
@@ -2169,6 +2535,11 @@ export default function App() {
             <p className="eyebrow">Welcome</p>
             <h2>Begin your language journey.</h2>
             <p className="start-copy">Choose a world and follow the word trail. Save your progress with a profile or continue as guest.</p>
+            <div className="motivation-list" aria-label="Motivation">
+              <p>Small practice today becomes easy words tomorrow.</p>
+              <p>One correct answer is still progress.</p>
+              <p>Keep your streak alive and let your XP grow.</p>
+            </div>
             <div className="start-actions">
               <button type="button" onClick={startNewQuest}>
                 <ButtonLabel icon={Gamepad2}>Play now</ButtonLabel>
@@ -2193,12 +2564,16 @@ export default function App() {
               <button type="button" onClick={() => setView('leaderboard')}>
                 <ButtonLabel icon={Trophy}>Leaderboard</ButtonLabel>
               </button>
-              <button type="button" onClick={() => setView('login')}>
-                <ButtonLabel icon={LogIn}>Login</ButtonLabel>
-              </button>
-              <button type="button" onClick={() => setView('register')}>
-                <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
-              </button>
+              {!playerName && (
+                <>
+                  <button type="button" onClick={() => setView('login')}>
+                    <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+                  </button>
+                  <button type="button" onClick={() => setView('register')}>
+                    <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
+                  </button>
+                </>
+              )}
             </div>
           </section>
         )}
@@ -2212,7 +2587,7 @@ export default function App() {
               {languageCards.map((card) => (
                 <article className="language-card" key={card.language}>
                   <div>
-                    <strong>{card.language}</strong>
+                    <strong className="language-card-title"><FlagLabel language={card.language} /></strong>
                     <p>{card.questionCount} questions ready</p>
                   </div>
                   <span>{card.lessonCount} lesson packs</span>
@@ -2231,10 +2606,10 @@ export default function App() {
         )}
 
         {view === 'lessons' && (
-          <section className="menu-panel" aria-label="Lessons">
+          <section className="menu-panel lessons-panel" aria-label="Lessons">
             <p className="eyebrow">Lessons</p>
-            <h2>Choose a lesson pack</h2>
-            <p className="start-copy">Pick a themed set of 10 questions to practice vocabulary in a focused way.</p>
+            <h2>Choose an album</h2>
+            <p className="start-copy">Open an album, then pick a 10-question lesson inside it.</p>
             <label className="toggle-row" style={{ marginBottom: '1rem' }}>
               <span>
                 <strong>Hard mode</strong>
@@ -2262,13 +2637,41 @@ export default function App() {
               <p>Use Speaking Trainer to practice real phrases with translations, pronunciation, and word-by-word meaning.</p>
             </div>
             <AITutor languages={playableLanguageOptions} onTrainingComplete={completeSpeakingTraining} />
+
+            <div className="lesson-albums" aria-label="Lesson albums">
+              {lessonAlbums.map((album) => {
+                const albumCount = lessonPacks.filter((lessonPack) => getLessonAlbumId(lessonPack) === album.id).length;
+
+                return (
+                  <button
+                    className={album.id === selectedLessonAlbum ? 'lesson-album lesson-album--active' : 'lesson-album'}
+                    type="button"
+                    key={album.id}
+                    onClick={() => setSelectedLessonAlbum(album.id)}
+                  >
+                    <strong>{album.title}</strong>
+                    <span>{album.description}</span>
+                    <small>{albumCount} lessons</small>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="lesson-album-header">
+              <div>
+                <strong>{selectedLessonAlbumInfo.title}</strong>
+                <p>{selectedLessonAlbumInfo.description}</p>
+              </div>
+              <span>{visibleLessonPacks.length} lessons</span>
+            </div>
+
             <div className="start-actions" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-              {lessonPacks.map((lessonPack) => (
-                <div key={lessonPack.id} className="card" style={{ padding: '1rem' }}>
-                  <div style={{ marginBottom: '0.75rem' }}>
+              {visibleLessonPacks.map((lessonPack) => (
+                <div key={lessonPack.id} className="card lesson-card">
+                  <div>
                     <strong>{lessonPack.title}</strong>
-                    <p style={{ margin: '0.25rem 0 0', color: '#5f6b7a' }}>{lessonPack.description}</p>
-                    <small style={{ color: '#5f6b7a', fontWeight: 800 }}>{lessonPack.size ?? defaultLessonQuestionCount} questions</small>
+                    <p>{lessonPack.description}</p>
+                    <small>{lessonPack.size ?? defaultLessonQuestionCount} questions</small>
                   </div>
                   <button type="button" onClick={() => startLessonPack(lessonPack.id)}>
                     <ButtonLabel icon={Play}>Start {lessonPack.title}</ButtonLabel>
@@ -2469,6 +2872,21 @@ export default function App() {
                           type="url"
                         />
                       </label>
+                      <div className="location-fields">
+                        <label>
+                          Country
+                          <select value={country} onChange={(event) => setCountry(event.target.value)}>
+                            <option value="">Choose country</option>
+                            {countryOptions.map((option) => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        </label>
+                        <label>
+                          City
+                          <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Your city" />
+                        </label>
+                      </div>
                     </div>
                   </div>
                   <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
@@ -2483,6 +2901,21 @@ export default function App() {
               ) : (
                 <>
                   <p style={{ margin: '0 0 0.75rem' }}>Create a profile or keep playing as a guest.</p>
+                  <div className="location-fields">
+                    <label>
+                      Country
+                      <select value={country} onChange={(event) => setCountry(event.target.value)}>
+                        <option value="">Choose country</option>
+                        {countryOptions.map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      City
+                      <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Your city" />
+                    </label>
+                  </div>
                   <GoogleAuthButton mode="continue" onSignIn={() => void signInWithGoogle()} />
                   <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
                     <button type="button" onClick={() => setAuthMode('login')}>
@@ -2681,7 +3114,7 @@ export default function App() {
                 key={language}
                 onClick={() => chooseLanguage(language)}
               >
-                <ButtonLabel icon={Globe2}>{language}</ButtonLabel>
+                <FlagLabel language={language} />
               </button>
             ))}
           </div>

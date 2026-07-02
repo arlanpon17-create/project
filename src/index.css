@@ -188,6 +188,21 @@ h2 {
   justify-content: center;
 }
 
+.flag-label {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
+}
+
+.language-flag {
+  width: 1.5em;
+  display: inline-grid;
+  place-items: center;
+  font-size: 18px;
+  line-height: 1;
+}
+
 .secondary,
 .ghost,
 .menu-button,
@@ -244,6 +259,11 @@ h2 {
   margin: 0;
 }
 
+.player-location {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .profile-avatar {
   width: 42px;
   height: 42px;
@@ -298,6 +318,47 @@ h2 {
   font-weight: 700;
 }
 
+.welcome-screen {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  width: 100%;
+  min-height: 100vh;
+  display: grid;
+  gap: 14px;
+  place-content: center;
+  border: 0;
+  border-radius: 0;
+  color: var(--ink);
+  background: var(--bg);
+  text-align: center;
+  cursor: pointer;
+}
+
+.welcome-screen:hover,
+.welcome-screen:focus-visible {
+  background: var(--bg);
+}
+
+.welcome-screen strong {
+  font-family: var(--display-font);
+  font-size: clamp(64px, 14vw, 150px);
+  font-weight: 400;
+  line-height: 0.95;
+}
+
+.welcome-screen span:last-child {
+  width: fit-content;
+  margin: 8px auto 0;
+  padding: 10px 16px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--subtle);
+  background: var(--panel-soft);
+  font-size: 16px;
+  font-weight: 500;
+}
+
 .menu-panel {
   max-width: 760px;
   margin-top: 28px;
@@ -341,6 +402,120 @@ h2 {
 
 .start-actions {
   width: min(100%, 420px);
+}
+
+.lessons-panel {
+  max-width: 860px;
+}
+
+.lessons-panel .start-actions {
+  width: 100%;
+  gap: 8px;
+}
+
+.lesson-albums {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.lesson-album {
+  min-height: 118px;
+  padding: 12px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  border-color: var(--line);
+  color: var(--ink);
+  background: var(--panel-soft);
+  text-align: left;
+}
+
+.lesson-album strong {
+  font-size: 16px;
+}
+
+.lesson-album span {
+  color: var(--subtle);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.lesson-album small,
+.lesson-album-header span {
+  color: var(--tertiary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lesson-album--active {
+  border-color: var(--accent);
+  background: #fff3ed;
+}
+
+.lesson-album-header {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel-soft);
+}
+
+.lesson-album-header p {
+  margin: 2px 0 0;
+  color: var(--subtle);
+  font-size: 13px;
+}
+
+.lesson-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  padding: 10px 12px;
+}
+
+.lesson-card strong {
+  font-size: 15px;
+}
+
+.lesson-card p {
+  margin: 2px 0 0;
+  color: var(--subtle);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.lesson-card small {
+  display: block;
+  margin-top: 3px;
+  color: var(--tertiary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.lesson-card button {
+  min-height: 34px;
+  padding: 7px 10px;
+}
+
+.motivation-list {
+  display: grid;
+  gap: 8px;
+  max-width: 560px;
+  margin: 0 0 18px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--panel-soft);
+}
+
+.motivation-list p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.45;
 }
 
 .language-grid,
@@ -413,6 +588,10 @@ h2 {
 .speaking-card strong {
   color: var(--ink);
   font-size: 18px;
+}
+
+.language-card-title .language-flag {
+  font-size: 24px;
 }
 
 .language-card p,
@@ -649,6 +828,18 @@ h2 {
   align-items: start;
 }
 
+.location-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.location-fields label {
+  display: grid;
+  gap: 6px;
+}
+
 .toggle-row {
   display: flex;
   gap: 14px;
@@ -868,6 +1059,7 @@ h2 {
   .ai-tutor-controls,
   .video-call-grid,
   .profile-settings,
+  .location-fields,
   .reward-card {
     grid-template-columns: 1fr;
   }
