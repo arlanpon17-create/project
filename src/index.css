@@ -168,6 +168,12 @@ h2 {
   margin-bottom: 18px;
 }
 
+.topbar-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
 .eyebrow,
 .stat-label {
   display: inline-flex;
@@ -302,6 +308,10 @@ h2 {
   border-color: rgba(93, 184, 114, 0.45);
   color: #255b31;
   background: rgba(93, 184, 114, 0.14);
+}
+
+.feedback--hint {
+  font-weight: 800;
 }
 
 .reward-pop {
@@ -789,6 +799,81 @@ h2 {
   background: rgba(198, 69, 69, 0.14);
 }
 
+.ai-question-help {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.ai-question-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.ai-question-actions button {
+  justify-self: start;
+}
+
+.ai-question-help p {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  background: var(--panel-soft);
+}
+
+.ai-question-help svg {
+  flex: 0 0 auto;
+  color: var(--accent);
+}
+
+.ai-lesson-picker,
+.ai-lesson-result {
+  display: grid;
+  gap: 12px;
+  margin: 18px 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel-soft);
+}
+
+.ai-lesson-picker p,
+.ai-lesson-result p {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.ai-lesson-form,
+.ai-lesson-result {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.ai-lesson-form {
+  gap: 10px;
+}
+
+.ai-lesson-result {
+  margin: 0;
+  background: var(--panel);
+}
+
+.video-ai-phrase {
+  display: grid;
+  gap: 8px;
+}
+
+.video-ai-phrase button {
+  justify-self: start;
+}
+
 .quest-actions,
 .shop-actions {
   flex-wrap: wrap;
@@ -826,6 +911,23 @@ h2 {
   grid-template-columns: 48px minmax(0, 1fr);
   gap: 14px;
   align-items: start;
+}
+
+.interface-language-select {
+  min-width: 150px;
+  display: grid;
+  gap: 6px;
+}
+
+.interface-language-select span {
+  color: var(--subtle);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.interface-language-select select {
+  min-height: 40px;
+  padding-right: 32px;
 }
 
 .location-fields {
@@ -1056,6 +1158,8 @@ h2 {
 
   .answers,
   .leaderboard-row,
+  .ai-lesson-form,
+  .ai-lesson-result,
   .ai-tutor-controls,
   .video-call-grid,
   .profile-settings,
@@ -1071,6 +1175,7 @@ h2 {
 
 @media (max-width: 480px) {
   .topbar,
+  .topbar-actions,
   .lesson-run-header,
   .toggle-row {
     align-items: stretch;
@@ -1079,6 +1184,7 @@ h2 {
 
   .main-menu button,
   .start-actions button,
+  .ai-question-actions button,
   .quest-actions button,
   .shop-actions button {
     width: 100%;

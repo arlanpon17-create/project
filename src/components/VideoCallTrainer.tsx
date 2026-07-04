@@ -1,43 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Phone, PhoneOff, UserRound } from 'lucide-react';
 import SpeechPractice from './SpeechPractice';
-
-type Phrase = {
-  text: string;
-  sound: string;
-  translation: string;
-};
+import VideoAiPhrase from './VideoAiPhrase';
+import { createVideoPhrase, getTopicPhrase, type VideoPhrase } from '../lib/aiVideoCall';
 
 type Props = {
   language: string;
-  phrases: Phrase[];
+  phrases: VideoPhrase[];
   onPassed: (text: string) => void;
   onComplete: () => void;
 };
-
-const topicOpeners: Record<string, { start: string; sound: string }> = {
-  English: { start: 'I want to talk about', sound: 'ai want tuh tawk uh-bout' },
-  Spanish: { start: 'Quiero hablar de', sound: 'kee-EH-roh ah-BLAR deh' },
-  French: { start: 'Je veux parler de', sound: 'zhuh vuh par-LAY duh' },
-  German: { start: 'Ich mochte uber sprechen:', sound: 'ikh MURKH-tuh oo-ber SHPREH-khen' },
-  Portuguese: { start: 'Eu quero falar sobre', sound: 'eh-oo KEH-roh fah-LAR SOH-breh' },
-  Italian: { start: 'Voglio parlare di', sound: 'VOH-lyoh par-LAH-reh dee' },
-  Russian: { start: 'Ya khochu pogovorit pro', sound: 'yah khoh-CHOO pah-gah-vah-REET proh' },
-  Kazakh: { start: 'Men turaly soileskim keledi:', sound: 'men too-rah-LY soy-les-KEEM keh-leh-DEE' },
-  Japanese: { start: 'Watashi wa hanashitai desu:', sound: 'wah-tah-shee wah hah-nah-shee-tai dess' },
-  Chinese: { start: 'Wo xiang tan', sound: 'woh shyahng tahn' },
-  Korean: { start: 'Jeoneun iyagi hago sipeoyo:', sound: 'joh-nun ee-yah-gee hah-go shee-poh-yoh' },
-  Arabic: { start: 'Ureed an atahadath an', sound: 'oo-reed an ah-tah-hah-dath an' },
-};
-
-function getTopicPhrase(language: string, topic: string): Phrase {
-  const opener = topicOpeners[language] ?? topicOpeners.English;
-  return {
-    text: `${opener.start} ${topic}.`,
-    sound: `${opener.sound} ${topic}`,
-    translation: `I want to talk about ${topic}.`,
-  };
-}
 
 export default function VideoCallTrainer({ language, phrases, onPassed, onComplete }: Props) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -45,10 +17,12 @@ export default function VideoCallTrainer({ language, phrases, onPassed, onComple
   const [isCallActive, setIsCallActive] = useState(false);
   const [phraseIndex, setPhraseIndex] = useState(0);
   const [topic, setTopic] = useState('');
+  const [aiPhrases, setAiPhrases] = useState<VideoPhrase[]>([]);
   const [spokenCount, setSpokenCount] = useState(0);
   const [cameraMessage, setCameraMessage] = useState('');
+  const [trainerMessage, setTrainerMessage] = useState('');
   const cleanTopic = topic.trim();
-  const callPhrases = cleanTopic ? [getTopicPhrase(language, cleanTopic), ...phrases] : phrases;
+  const callPhrases = cleanTopic ? [...aiPhrases, getTopicPhrase(language, cleanTopic), ...phrases] : [...aiPhrases, ...phrases];
   const phrase = callPhrases[phraseIndex] ?? callPhrases[0];
 
   useEffect(() => {
@@ -57,11 +31,16 @@ export default function VideoCallTrainer({ language, phrases, onPassed, onComple
 
   useEffect(() => {
     setPhraseIndex(0);
+    setAiPhrases([]);
+    setTrainerMessage('');
   }, [language, cleanTopic]);
 
   async function startCall() {
     setCameraMessage('');
+    setTrainerMessage('Trainer is starting the conversation...');
     setSpokenCount(0);
+    setPhraseIndex(0);
+    void createOpeningLine();
 
     if (!navigator.mediaDevices?.getUserMedia) {
       setCameraMessage('Camera is not supported in this browser. You can still practice by voice.');
@@ -94,6 +73,7 @@ export default function VideoCallTrainer({ language, phrases, onPassed, onComple
     if (isCallActive && spokenCount > 0) {
       onComplete();
     }
+    setTrainerMessage('');
     setIsCallActive(false);
   }
 
@@ -105,6 +85,17 @@ export default function VideoCallTrainer({ language, phrases, onPassed, onComple
     onPassed(phrase.text);
     setSpokenCount((count) => count + 1);
     nextPhrase();
+  }
+
+  async function createOpeningLine() {
+    const { phrase: openingPhrase, error } = await createVideoPhrase(language, cleanTopic);
+    if (openingPhrase) addAiPhrase(openingPhrase);
+    setTrainerMessage(openingPhrase ? 'Trainer started the conversation.' : error || 'Trainer started with a practice line.');
+  }
+
+  function addAiPhrase(nextPhrase: VideoPhrase) {
+    setAiPhrases((items) => [nextPhrase, ...items]);
+    setPhraseIndex(0);
   }
 
   if (!phrase) return null;
@@ -129,6 +120,8 @@ export default function VideoCallTrainer({ language, phrases, onPassed, onComple
         <input value={topic} onChange={(event) => setTopic(event.target.value)} placeholder="Example: football, music, school, movies..." />
       </label>
 
+      <VideoAiPhrase language={language} topic={cleanTopic} onPhraseReady={addAiPhrase} />
+
       <div className="video-call-grid">
         <div className="trainer-window">
           <div className="trainer-avatar"><UserRound aria-hidden="true" size={42} /></div>
@@ -143,15 +136,12 @@ export default function VideoCallTrainer({ language, phrases, onPassed, onComple
       </div>
 
       {cameraMessage && <p className="speech-result">{cameraMessage}</p>}
+      {trainerMessage && <p className="speech-result">{trainerMessage}</p>}
 
       <div className="call-task">
         <strong>Your turn</strong>
         <p>{phrase.translation}</p>
-        {isCallActive ? (
-          <SpeechPractice language={language} target={phrase.text} onPassed={handlePassed} />
-        ) : (
-          <small>Start the call to answer with your voice.</small>
-        )}
+        {isCallActive ? <SpeechPractice language={language} target={phrase.text} onPassed={handlePassed} /> : <small>Start the call to answer with your voice.</small>}
       </div>
     </section>
   );

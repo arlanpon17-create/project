@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   ArrowRight,
   BookOpen,
   CalendarDays,
   Check,
-  CircleHelp,
   Coins,
   Diamond,
   Flame,
@@ -39,7 +38,21 @@ import type { Session } from '@supabase/supabase-js';
 import AITutor from './components/AITutor';
 import DailyReward from './components/DailyReward';
 import DesignEditor from './components/DesignEditor';
+import InterfaceLanguageSelect from './components/InterfaceLanguageSelect';
+import LessonAiPicker from './components/LessonAiPicker';
+import type { AiLessonOption } from './components/LessonAiPicker';
 import Leaderboard from './components/Leaderboard';
+import QuestionAiHelp from './components/QuestionAiHelp';
+import {
+  createAiHint,
+  createAiQuestion,
+  type QuestionContext,
+} from './lib/aiQuestions';
+import {
+  getInterfaceMessage,
+  type InterfaceLanguage,
+  type InterfaceMessageKey,
+} from './lib/interfaceLanguage';
 import { supabase } from './lib/supabase';
 import type { PlayerSnapshot } from './lib/rewards';
 
@@ -226,6 +239,7 @@ type Quest = {
 const accountsKey = 'language-quest-accounts';
 const guestProgressKey = 'language-quest-guest-progress';
 const guestSettingsKey = 'language-quest-guest-settings';
+const interfaceLanguageKey = 'language-quest-interface-language';
 const oauthPlayerKey = 'language-quest-oauth-player';
 const maxHearts = 5;
 const heartRefillMs = 60 * 60 * 1000;
@@ -1654,6 +1668,11 @@ function getRandomLessonQuestions(packId: LessonPackId, hardMode = false) {
 
 export default function App() {
   const [view, setView] = useState<View>('quest');
+  const [interfaceLanguage, setInterfaceLanguage] = useState<InterfaceLanguage>(() => {
+    const savedLanguage = localStorage.getItem(interfaceLanguageKey);
+    return savedLanguage === 'ru' || savedLanguage === 'kk' ? savedLanguage : 'en';
+  });
+  const t = (key: InterfaceMessageKey) => getInterfaceMessage(interfaceLanguage, key);
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('language-quest-player') || '');
   const [oauthUserId, setOauthUserId] = useState(() => localStorage.getItem(oauthPlayerKey) || '');
@@ -1748,10 +1767,15 @@ export default function App() {
     return progress.chestOpened ?? defaultProgress.chestOpened;
   });
   const [showHint, setShowHint] = useState(false);
+  const [aiHint, setAiHint] = useState('');
+  const [isAiHintLoading, setIsAiHintLoading] = useState(false);
+  const [aiQuestionMessage, setAiQuestionMessage] = useState('');
+  const [isAutoGeneratingQuestion, setIsAutoGeneratingQuestion] = useState(false);
   const [shopMessage, setShopMessage] = useState('');
   const [rewardAnimation, setRewardAnimation] = useState('');
   const [timeLeft, setTimeLeft] = useState(bossModeTimeLimit);
   const [refillLabel, setRefillLabel] = useState(() => formatRefillTime(heartRefillAt));
+  const generatedAiQuestionSlots = useRef(new Set<string>());
 
   const activeQuests = useMemo(() => {
     if (selectedLessonQuests) {
@@ -1779,6 +1803,17 @@ export default function App() {
     () => lessonPacks.filter((lessonPack) => getLessonAlbumId(lessonPack) === selectedLessonAlbum),
     [selectedLessonAlbum],
   );
+  const aiLessonOptions: AiLessonOption[] = useMemo(
+    () => lessonPacks.map((lessonPack) => ({
+      id: lessonPack.id,
+      title: lessonPack.title,
+      description: lessonPack.description,
+      keywords: lessonPack.keywords,
+      language: lessonPack.language,
+      size: lessonPack.size ?? defaultLessonQuestionCount,
+    })),
+    [],
+  );
   const selectedLessonAlbumInfo = lessonAlbums.find((album) => album.id === selectedLessonAlbum) ?? lessonAlbums[0];
   const isLessonRun = Boolean(selectedLessonPack);
   const isComplete = questIndex >= activeQuests.length;
@@ -1798,6 +1833,10 @@ export default function App() {
     if (!selected) return '';
     return selected === currentQuest?.answer ? 'Correct. The path opens.' : 'Not quite. Try the hint and keep moving.';
   }, [currentQuest?.answer, selected]);
+
+  useEffect(() => {
+    localStorage.setItem(interfaceLanguageKey, interfaceLanguage);
+  }, [interfaceLanguage]);
 
   useEffect(() => {
     function applyOAuthSession(session: Session | null) {
@@ -1891,6 +1930,47 @@ export default function App() {
       setQuestIndex(activeQuests.length);
     }
   }, [activeQuests.length, questIndex]);
+
+  useEffect(() => {
+    if (view !== 'quest' || isComplete || selected || !currentQuest || isAutoGeneratingQuestion) {
+      return;
+    }
+
+    const slotKey = `${selectedLessonPack ?? selectedLanguage}-${questIndex}`;
+    if (generatedAiQuestionSlots.current.has(slotKey)) {
+      return;
+    }
+
+    let isCancelled = false;
+    generatedAiQuestionSlots.current.add(slotKey);
+    setIsAutoGeneratingQuestion(true);
+    setAiQuestionMessage('AI is creating a question...');
+
+    async function createQuestion() {
+      const questionContext: QuestionContext = {
+        prompt: currentQuest.prompt,
+        options: currentQuest.options,
+        hint: currentQuest.hint,
+        language: currentQuest.language,
+      };
+      const { question: nextQuestion, error } = await createAiQuestion(questionContext);
+      if (isCancelled) return;
+      if (nextQuestion) {
+        useAiQuestion(nextQuestion);
+        setAiQuestionMessage('AI made this question.');
+      } else {
+        setAiQuestionMessage(error || 'AI made a broken question, so this normal question stays.');
+      }
+
+      setIsAutoGeneratingQuestion(false);
+    }
+
+    void createQuestion();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeQuests, currentQuest, isComplete, questIndex, selected, selectedLanguage, selectedLessonPack, view]);
 
   useEffect(() => {
     if (!selectedLessonPack || !isComplete || lessonStreakAwarded) {
@@ -2028,6 +2108,7 @@ export default function App() {
   function resetRun(restoreHearts = false) {
     setQuestIndex(0);
     setSelected(null);
+    generatedAiQuestionSlots.current.clear();
     if (restoreHearts) {
       setHearts(maxHearts);
       setHeartRefillAt(null);
@@ -2036,6 +2117,10 @@ export default function App() {
     setLessonStreakAwarded(false);
     setChestOpened(false);
     setShowHint(false);
+    setAiHint('');
+    setIsAiHintLoading(false);
+    setAiQuestionMessage('');
+    setIsAutoGeneratingQuestion(false);
     setTimeLeft(bossModeTimeLimit);
   }
 
@@ -2245,6 +2330,48 @@ export default function App() {
     setQuestIndex((value) => value + 1);
     setSelected(null);
     setShowHint(false);
+    setAiHint('');
+    setIsAutoGeneratingQuestion(false);
+    setAiQuestionMessage('');
+    setTimeLeft(bossModeTimeLimit);
+  }
+
+  async function showAiHint() {
+    if (!currentQuest || isAiHintLoading) return;
+    setShowHint(true);
+    setAiHint('AI is making a hint...');
+    setIsAiHintLoading(true);
+
+    const { text, error } = await createAiHint({
+      prompt: currentQuest.prompt,
+      options: currentOptions,
+      hint: currentQuest.hint,
+      language: currentQuest.language,
+    });
+
+    setAiHint(text || error || currentQuest.hint);
+    setIsAiHintLoading(false);
+  }
+
+  function useAiQuestion(question: Required<QuestionContext>) {
+    const language = playableLanguageOptions.includes(question.language as Language)
+      ? question.language as Exclude<Language, 'All'>
+      : currentQuest.language;
+    const nextQuestion: Quest = {
+      prompt: question.prompt,
+      answer: question.answer,
+      options: question.options,
+      hint: question.hint,
+      world: question.world,
+      language,
+    };
+    const nextQuests = [...activeQuests];
+    nextQuests[questIndex] = nextQuestion;
+
+    setSelectedLessonQuests(nextQuests);
+    setSelected(null);
+    setShowHint(false);
+    setAiHint('');
     setTimeLeft(bossModeTimeLimit);
   }
 
@@ -2451,9 +2578,9 @@ export default function App() {
     <main className="game-shell">
       {showWelcomeScreen && (
         <button className="welcome-screen" type="button" onClick={() => setShowWelcomeScreen(false)}>
-          <span className="eyebrow">Language Quest</span>
-          <strong>Welcome</strong>
-          <span>Click to continue</span>
+          <span className="eyebrow">{t('languageQuest')}</span>
+          <strong>{t('welcome')}</strong>
+          <span>{t('clickToContinue')}</span>
         </button>
       )}
       {rewardAnimation && (
@@ -2464,67 +2591,70 @@ export default function App() {
       <section className="quest-panel" aria-label="Language Quest">
         <div className="topbar">
           <div>
-            <p className="eyebrow">Language Quest</p>
-            <h1>Word trail</h1>
+            <p className="eyebrow">{t('languageQuest')}</p>
+            <h1>{t('wordTrail')}</h1>
           </div>
-          <button className="icon-button" type="button" onClick={restartQuest} aria-label="Restart quest" title="Restart">
-            <RotateCcw aria-hidden="true" size={22} strokeWidth={2.4} />
-          </button>
+          <div className="topbar-actions">
+            <InterfaceLanguageSelect language={interfaceLanguage} onChange={setInterfaceLanguage} />
+            <button className="icon-button" type="button" onClick={restartQuest} aria-label={t('restartQuest')} title={t('restartQuest')}>
+              <RotateCcw aria-hidden="true" size={22} strokeWidth={2.4} />
+            </button>
+          </div>
         </div>
 
         <nav className="main-menu" aria-label="Main menu">
           <button className={view === 'start' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('start')}>
-            <ButtonLabel icon={Home}>Start</ButtonLabel>
+            <ButtonLabel icon={Home}>{t('start')}</ButtonLabel>
           </button>
           <button className={view === 'quest' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('quest')}>
-            <ButtonLabel icon={Play}>Play</ButtonLabel>
+            <ButtonLabel icon={Play}>{t('play')}</ButtonLabel>
           </button>
           <button className={view === 'languages' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('languages')}>
-            <ButtonLabel icon={Globe2}>Languages</ButtonLabel>
+            <ButtonLabel icon={Globe2}>{t('languages')}</ButtonLabel>
           </button>
           <button className={view === 'lessons' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('lessons')}>
-            <ButtonLabel icon={GraduationCap}>Lessons</ButtonLabel>
+            <ButtonLabel icon={GraduationCap}>{t('lessons')}</ButtonLabel>
           </button>
           <button className={view === 'shop' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('shop')}>
-            <ButtonLabel icon={ShoppingBag}>Shop</ButtonLabel>
+            <ButtonLabel icon={ShoppingBag}>{t('shop')}</ButtonLabel>
           </button>
           <button className={view === 'rewards' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('rewards')}>
-            <ButtonLabel icon={Gift}>Rewards</ButtonLabel>
+            <ButtonLabel icon={Gift}>{t('rewards')}</ButtonLabel>
           </button>
           <button className={view === 'leaderboard' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('leaderboard')}>
-            <ButtonLabel icon={Trophy}>Leaderboard</ButtonLabel>
+            <ButtonLabel icon={Trophy}>{t('leaderboard')}</ButtonLabel>
           </button>
           {playerName ? (
             <button className="menu-button" type="button" onClick={logout}>
-              <ButtonLabel icon={LogOut}>Logout</ButtonLabel>
+              <ButtonLabel icon={LogOut}>{t('logout')}</ButtonLabel>
             </button>
           ) : (
             <>
               <button className={view === 'login' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('login')}>
-                <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+                <ButtonLabel icon={LogIn}>{t('login')}</ButtonLabel>
               </button>
               <button className={view === 'register' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('register')}>
-                <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
+                <ButtonLabel icon={UserPlus}>{t('register')}</ButtonLabel>
               </button>
             </>
           )}
           <button className={view === 'settings' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('settings')}>
-            <ButtonLabel icon={Settings}>Settings</ButtonLabel>
+            <ButtonLabel icon={Settings}>{t('settings')}</ButtonLabel>
           </button>
           <button className="menu-button" type="button" onClick={saveGame}>
-            <ButtonLabel icon={Save}>Save game</ButtonLabel>
+            <ButtonLabel icon={Save}>{t('saveGame')}</ButtonLabel>
           </button>
         </nav>
 
         <div className="player-line">
           <ProfileAvatar name={playerName || 'Guest'} imageUrl={profileImageUrl} />
           <p>
-            {playerName ? `Playing as ${playerName}. Progress saves to this profile.` : 'Playing as Guest. Progress saves on this device.'}
+            {playerName ? `${t('signedInAs')} ${playerName}.` : t('guestLine')}
             {(city || country) && <span className="player-location"> {city}{city && country ? ', ' : ''}{country}</span>}
           </p>
           {!playerName && (
             <button className="google-signin-button" type="button" onClick={() => void signInWithGoogle()}>
-              <ButtonLabel icon={Mail}>Google Sign In</ButtonLabel>
+              <ButtonLabel icon={Mail}>{t('continueWithGoogle')}</ButtonLabel>
             </button>
           )}
         </div>
@@ -2637,6 +2767,8 @@ export default function App() {
               <p>Use Speaking Trainer to practice real phrases with translations, pronunciation, and word-by-word meaning.</p>
             </div>
             <AITutor languages={playableLanguageOptions} onTrainingComplete={completeSpeakingTraining} />
+
+            <LessonAiPicker lessons={aiLessonOptions} onStartLesson={startLessonPack} />
 
             <div className="lesson-albums" aria-label="Lesson albums">
               {lessonAlbums.map((album) => {
@@ -2793,7 +2925,7 @@ export default function App() {
 
         {view === 'login' && (
           <section className="menu-panel" aria-label="Login">
-            <p className="eyebrow">Login</p>
+            <p className="eyebrow">{t('login')}</p>
             <h2>Continue your quest.</h2>
             <GoogleAuthButton mode="login" onSignIn={() => void signInWithGoogle()} />
             <p className="auth-divider">or use a local player profile</p>
@@ -2822,10 +2954,10 @@ export default function App() {
 
         {view === 'register' && (
           <section className="menu-panel" aria-label="Register">
-            <p className="eyebrow">Register</p>
-            <h2>Create a player.</h2>
+            <p className="eyebrow">{t('register')}</p>
+            <h2>{t('createPlayer')}</h2>
             <GoogleAuthButton mode="register" onSignIn={() => void signInWithGoogle()} />
-            <p className="auth-divider">or create a local player profile</p>
+            <p className="auth-divider">{t('createLocalProfile')}</p>
             <form className="auth-form" onSubmit={handleRegister}>
               <label>
                 Player name
@@ -2843,7 +2975,7 @@ export default function App() {
                 />
               </label>
               <button type="submit">
-                <ButtonLabel icon={UserPlus}>Create account</ButtonLabel>
+                <ButtonLabel icon={UserPlus}>{t('createAccount')}</ButtonLabel>
               </button>
             </form>
             {authMessage && <p className="feedback">{authMessage}</p>}
@@ -2852,19 +2984,27 @@ export default function App() {
 
         {view === 'settings' && (
           <section className="menu-panel" aria-label="Settings">
-            <p className="eyebrow">Settings</p>
-            <h2>Player options</h2>
+            <p className="eyebrow">{t('settings')}</p>
+            <h2>{t('playerOptions')}</h2>
+
+            <label className="toggle-row">
+              <span>
+                <strong><StatLabel icon={Globe2}>{t('interfaceLanguage')}</StatLabel></strong>
+                <small>{t('interfaceLanguageHint')}</small>
+              </span>
+              <InterfaceLanguageSelect language={interfaceLanguage} onChange={setInterfaceLanguage} />
+            </label>
 
             <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
-              <p style={{ margin: '0 0 0.5rem', fontWeight: 700 }}>Account</p>
+              <p style={{ margin: '0 0 0.5rem', fontWeight: 700 }}>{t('account')}</p>
               {playerName ? (
                 <>
                   <div className="profile-settings">
                     <ProfileAvatar name={playerName} imageUrl={profileImageUrl} />
                     <div>
-                      <p style={{ margin: '0 0 0.75rem' }}>Signed in as {playerName}.</p>
+                      <p style={{ margin: '0 0 0.75rem' }}>{t('signedInAs')} {playerName}.</p>
                       <label>
-                        Profile picture URL
+                        {t('profilePictureUrl')}
                         <input
                           value={profileImageUrl}
                           onChange={(event) => setProfileImageUrl(event.target.value.trim())}
@@ -2874,16 +3014,16 @@ export default function App() {
                       </label>
                       <div className="location-fields">
                         <label>
-                          Country
+                          {t('country')}
                           <select value={country} onChange={(event) => setCountry(event.target.value)}>
-                            <option value="">Choose country</option>
+                            <option value="">{t('chooseCountry')}</option>
                             {countryOptions.map((option) => (
                               <option key={option} value={option}>{option}</option>
                             ))}
                           </select>
                         </label>
                         <label>
-                          City
+                          {t('city')}
                           <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Your city" />
                         </label>
                       </div>
@@ -2891,41 +3031,41 @@ export default function App() {
                   </div>
                   <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
                     <button type="button" onClick={saveGame}>
-                      <ButtonLabel icon={Save}>Save game</ButtonLabel>
+                      <ButtonLabel icon={Save}>{t('saveGame')}</ButtonLabel>
                     </button>
                     <button type="button" onClick={logout}>
-                      <ButtonLabel icon={LogOut}>Logout</ButtonLabel>
+                      <ButtonLabel icon={LogOut}>{t('logout')}</ButtonLabel>
                     </button>
                   </div>
                 </>
               ) : (
                 <>
-                  <p style={{ margin: '0 0 0.75rem' }}>Create a profile or keep playing as a guest.</p>
+                  <p style={{ margin: '0 0 0.75rem' }}>{t('guestLine')}</p>
                   <div className="location-fields">
                     <label>
-                      Country
+                      {t('country')}
                       <select value={country} onChange={(event) => setCountry(event.target.value)}>
-                        <option value="">Choose country</option>
+                        <option value="">{t('chooseCountry')}</option>
                         {countryOptions.map((option) => (
                           <option key={option} value={option}>{option}</option>
                         ))}
                       </select>
                     </label>
                     <label>
-                      City
+                      {t('city')}
                       <input value={city} onChange={(event) => setCity(event.target.value)} placeholder="Your city" />
                     </label>
                   </div>
                   <GoogleAuthButton mode="continue" onSignIn={() => void signInWithGoogle()} />
                   <div className="start-actions" style={{ justifyContent: 'flex-start' }}>
                     <button type="button" onClick={() => setAuthMode('login')}>
-                      <ButtonLabel icon={LogIn}>Login</ButtonLabel>
+                      <ButtonLabel icon={LogIn}>{t('login')}</ButtonLabel>
                     </button>
                     <button type="button" onClick={() => setAuthMode('register')}>
-                      <ButtonLabel icon={UserPlus}>Register</ButtonLabel>
+                      <ButtonLabel icon={UserPlus}>{t('register')}</ButtonLabel>
                     </button>
                     <button type="button" onClick={saveGame}>
-                      <ButtonLabel icon={Save}>Save game</ButtonLabel>
+                      <ButtonLabel icon={Save}>{t('saveGame')}</ButtonLabel>
                     </button>
                   </div>
                 </>
@@ -2993,8 +3133,8 @@ export default function App() {
 
             <label className="toggle-row">
               <span>
-                <strong><StatLabel icon={Volume2}>Sound</StatLabel></strong>
-                <small>Keep feedback sounds ready for later.</small>
+                <strong><StatLabel icon={Volume2}>{t('sound')}</StatLabel></strong>
+                <small>{t('soundHint')}</small>
               </span>
               <input
                 type="checkbox"
@@ -3004,8 +3144,8 @@ export default function App() {
             </label>
             <label className="toggle-row">
               <span>
-                <strong><StatLabel icon={Lock}>Hard mode</StatLabel></strong>
-                <small>No hints and tougher penalties for mistakes.</small>
+                <strong><StatLabel icon={Lock}>{t('hardMode')}</StatLabel></strong>
+                <small>{t('hardModeHint')}</small>
               </span>
               <input
                 type="checkbox"
@@ -3015,8 +3155,8 @@ export default function App() {
             </label>
             <label className="toggle-row">
               <span>
-                <strong><StatLabel icon={Timer}>Boss mode</StatLabel></strong>
-                <small>Beat the clock and earn double points.</small>
+                <strong><StatLabel icon={Timer}>{t('bossMode')}</StatLabel></strong>
+                <small>{t('bossModeHint')}</small>
               </span>
               <input
                 type="checkbox"
@@ -3025,7 +3165,7 @@ export default function App() {
               />
             </label>
             <button className="danger-button" type="button" onClick={clearSavedProgress}>
-              <ButtonLabel icon={RotateCcw}>Reset saved progress</ButtonLabel>
+              <ButtonLabel icon={RotateCcw}>{t('resetSavedProgress')}</ButtonLabel>
             </button>
           </section>
         )}
@@ -3034,8 +3174,8 @@ export default function App() {
           <>
         <section className="instructions" aria-label="How to play">
           <div>
-            <p className="eyebrow">Quick start</p>
-            <h2>How to play</h2>
+            <p className="eyebrow">{t('quickStart')}</p>
+            <h2>{t('howToPlay')}</h2>
           </div>
           <ul>
             <li><StatLabel icon={Globe2}>Choose a language or keep All for mixed practice.</StatLabel></li>
@@ -3163,6 +3303,7 @@ export default function App() {
             <p className="world">{currentQuest.world}</p>
             <p className="quest-count">{currentQuest.language} quest {questIndex + 1} of {activeQuests.length}</p>
             <h2>{currentQuest.prompt}</h2>
+            {aiQuestionMessage && <p className="feedback">{aiQuestionMessage}</p>}
 
             <div className="answers">
               {currentOptions.map((option) => {
@@ -3182,10 +3323,21 @@ export default function App() {
               })}
             </div>
 
+            <QuestionAiHelp
+              key={`${currentQuest.language}-${currentQuest.world}-${currentQuest.prompt}`}
+              question={{
+                prompt: currentQuest.prompt,
+                options: currentOptions,
+                hint: currentQuest.hint,
+                language: currentQuest.language,
+              }}
+              onQuestionGenerated={useAiQuestion}
+            />
+
             <div className="quest-actions">
               {!hardModeEnabled ? (
-                <button className="secondary" type="button" onClick={() => setShowHint((value) => !value)}>
-                  <ButtonLabel icon={CircleHelp}>Hint</ButtonLabel>
+                <button className="secondary" type="button" onClick={() => void showAiHint()} disabled={isAiHintLoading}>
+                  <ButtonLabel icon={Sparkles}>{isAiHintLoading ? 'AI hint...' : 'AI Hint'}</ButtonLabel>
                 </button>
               ) : (
                 <span className="feedback" style={{ marginRight: '0.75rem' }}>Hints are off in hard mode.</span>
@@ -3199,8 +3351,8 @@ export default function App() {
             </div>
 
             {(showHint || feedback) && (
-              <p className={selected === currentQuest.answer ? 'feedback feedback--good' : 'feedback'}>
-                {feedback || currentQuest.hint}
+              <p className={selected === currentQuest.answer ? 'feedback feedback--good' : `feedback ${feedback ? '' : 'feedback--hint'}`}>
+                {feedback || aiHint || currentQuest.hint}
               </p>
             )}
           </div>
