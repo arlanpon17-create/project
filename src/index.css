@@ -676,6 +676,37 @@ h2 {
   margin: 0 0 18px;
 }
 
+.language-filter-summary {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin: 0 0 18px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel-soft);
+}
+
+.language-filter-summary > span {
+  display: inline-flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.language-filter-summary small {
+  color: var(--tertiary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.language-filter-summary button {
+  min-height: 34px;
+  padding: 7px 11px;
+}
+
 .progress {
   height: 10px;
   overflow: hidden;
@@ -743,23 +774,6 @@ h2 {
   margin-top: 28px;
 }
 
-.map-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(24px, 1fr));
-  gap: 8px;
-}
-
-.map-dot {
-  height: 8px;
-  border-radius: 999px;
-  background: var(--line-strong);
-}
-
-.map-dot--done,
-.map-dot--active {
-  background: var(--accent);
-}
-
 .world,
 .quest-count {
   margin-bottom: 10px;
@@ -790,12 +804,14 @@ h2 {
 
 .answer--right {
   border-color: rgba(93, 184, 114, 0.58);
+  color: #2f7d46;
   background: rgba(93, 184, 114, 0.16);
 }
 
 .answer--wrong,
 .danger-button {
   border-color: rgba(198, 69, 69, 0.58);
+  color: #b43535;
   background: rgba(198, 69, 69, 0.14);
 }
 

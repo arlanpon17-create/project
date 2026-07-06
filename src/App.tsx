@@ -3246,17 +3246,14 @@ export default function App() {
             </button>
           </section>
         ) : (
-          <div className="language-tabs" aria-label="Language filter">
-            {playableLanguageOptions.map((language) => (
-              <button
-                className={language === selectedLanguage ? 'language-tab language-tab--active' : 'language-tab'}
-                type="button"
-                key={language}
-                onClick={() => chooseLanguage(language)}
-              >
-                <FlagLabel language={language} />
-              </button>
-            ))}
+          <div className="language-filter-summary" aria-label="Language filter">
+            <span>
+              <FlagLabel language={selectedLanguage} />
+              <small>Practice language</small>
+            </span>
+            <button className="secondary" type="button" onClick={() => setView('languages')}>
+              <ButtonLabel icon={Globe2}>Change</ButtonLabel>
+            </button>
           </div>
         )}
 
@@ -3290,16 +3287,6 @@ export default function App() {
           </div>
         ) : (
           <div className="challenge">
-            <div className="map-row">
-              {activeQuests.map((quest, index) => (
-                <span
-                  className={index === questIndex ? 'map-dot map-dot--active' : index < questIndex ? 'map-dot map-dot--done' : 'map-dot'}
-                  key={quest.world}
-                  title={quest.world}
-                />
-              ))}
-            </div>
-
             <p className="world">{currentQuest.world}</p>
             <p className="quest-count">{currentQuest.language} quest {questIndex + 1} of {activeQuests.length}</p>
             <h2>{currentQuest.prompt}</h2>
