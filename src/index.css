@@ -528,7 +528,6 @@ h2 {
   line-height: 1.45;
 }
 
-.language-grid,
 .rarity-inventory,
 .stats,
 .instructions ul,
@@ -536,6 +535,12 @@ h2 {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.language-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
 }
 
 .language-card,
@@ -584,10 +589,11 @@ h2 {
 }
 
 .language-card {
-  min-height: 188px;
+  min-height: 178px;
   display: grid;
   gap: 12px;
   align-content: space-between;
+  background: var(--panel);
 }
 
 .language-card strong,
@@ -601,7 +607,7 @@ h2 {
 }
 
 .language-card-title .language-flag {
-  font-size: 24px;
+  font-size: 22px;
 }
 
 .language-card p,
@@ -623,6 +629,23 @@ h2 {
   background: var(--panel);
   font-size: 12px;
   font-weight: 700;
+}
+
+.language-card-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.language-card-actions button {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 12px;
+}
+
+.language-card-actions .button-label {
+  width: 100%;
 }
 
 .stats {
