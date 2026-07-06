@@ -14,7 +14,6 @@ import {
   Globe2,
   GraduationCap,
   Heart,
-  HeartMinus,
   Home,
   Lock,
   LogIn,
@@ -2138,13 +2137,10 @@ export default function App() {
       } else {
         setDiamonds((value) => value + 10 * rewardMultiplier);
       }
-      
-      // Previously: +1 heart after 3 consecutive correct answers (removed)
       return;
     }
 
     loseHearts(hardModeEnabled ? 2 : 1);
-    // counter removed
   }
 
   function loseHearts(amount: number) {
@@ -2155,10 +2151,6 @@ export default function App() {
       }
       return nextHearts;
     });
-  }
-
-  function watchAdToLoseHeart() {
-    loseHearts(1);
   }
 
   function completeDailyLesson() {
@@ -3329,9 +3321,6 @@ export default function App() {
               ) : (
                 <span className="feedback" style={{ marginRight: '0.75rem' }}>Hints are off in hard mode.</span>
               )}
-              <button className="secondary" type="button" onClick={watchAdToLoseHeart} disabled={hearts <= 0}>
-                <ButtonLabel icon={HeartMinus}>-1 heart by ad</ButtonLabel>
-              </button>
               <button type="button" onClick={nextQuest} disabled={!selected}>
                 <ButtonLabel icon={ArrowRight}>Continue</ButtonLabel>
               </button>

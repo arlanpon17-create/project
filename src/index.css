@@ -825,17 +825,19 @@ h2 {
   background: var(--panel-soft);
 }
 
-.answer--right {
-  border-color: rgba(93, 184, 114, 0.58);
-  color: #2f7d46;
-  background: rgba(93, 184, 114, 0.16);
+.answers .answer--right,
+.answers .answer--right:hover:not(:disabled) {
+  border-color: #2f8f4f;
+  color: #ffffff;
+  background: #2f8f4f;
 }
 
-.answer--wrong,
+.answers .answer--wrong,
+.answers .answer--wrong:hover:not(:disabled),
 .danger-button {
-  border-color: rgba(198, 69, 69, 0.58);
-  color: #b43535;
-  background: rgba(198, 69, 69, 0.14);
+  border-color: #c64545;
+  color: #ffffff;
+  background: #c64545;
 }
 
 .ai-question-help {
