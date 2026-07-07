@@ -26,6 +26,8 @@ export type InterfaceMessageKey =
   | 'lessons'
   | 'login'
   | 'logout'
+  | 'music'
+  | 'musicHint'
   | 'play'
   | 'playerOptions'
   | 'profilePictureUrl'

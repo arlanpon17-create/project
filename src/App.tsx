@@ -19,6 +19,7 @@ import {
   LogIn,
   LogOut,
   Mail,
+  Music,
   PackageOpen,
   Play,
   RotateCcw,
@@ -35,6 +36,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { Session } from '@supabase/supabase-js';
 import AITutor from './components/AITutor';
+import BackgroundMusic from './components/BackgroundMusic';
 import DailyReward from './components/DailyReward';
 import DesignEditor from './components/DesignEditor';
 import InterfaceLanguageSelect from './components/InterfaceLanguageSelect';
@@ -213,6 +215,7 @@ type PlayerProgress = {
 
 type PlayerSettings = {
   sound: boolean;
+  music: boolean;
   hardMode: boolean;
   bossMode: boolean;
 };
@@ -338,6 +341,7 @@ const defaultProgress: PlayerProgress = {
 };
 const defaultSettings: PlayerSettings = {
   sound: false,
+  music: false,
   hardMode: false,
   bossMode: false,
 };
@@ -373,6 +377,13 @@ function readAccounts(): Accounts {
 
 function writeAccounts(accounts: Accounts) {
   localStorage.setItem(accountsKey, JSON.stringify(accounts));
+}
+
+function normalizeSettings(settings: Partial<PlayerSettings> = {}): PlayerSettings {
+  return {
+    ...defaultSettings,
+    ...settings,
+  };
 }
 
 function getOAuthProgressKey(userId: string) {
@@ -1717,7 +1728,10 @@ export default function App() {
   const [settings, setSettings] = useState<PlayerSettings>(() => {
     const accounts = readAccounts();
     const savedPlayer = localStorage.getItem('language-quest-player') || '';
-    return savedPlayer && accounts[savedPlayer] ? accounts[savedPlayer].settings : readJson(guestSettingsKey, defaultSettings);
+    const savedSettings = savedPlayer && accounts[savedPlayer]
+      ? accounts[savedPlayer].settings
+      : readJson(guestSettingsKey, defaultSettings);
+    return normalizeSettings(savedSettings);
   });
   const [selectedLanguage, setSelectedLanguage] = useState<Language>(() => {
     const progress = readStoredProgress();
@@ -1876,7 +1890,7 @@ export default function App() {
       if (nextAvatar) {
         localStorage.setItem(getOAuthAvatarKey(session.user.id), nextAvatar);
       }
-      applyProgress(readOAuthProgress(session.user.id), readJson(getOAuthSettingsKey(session.user.id), defaultSettings));
+      applyProgress(readOAuthProgress(session.user.id), normalizeSettings(readJson(getOAuthSettingsKey(session.user.id), defaultSettings)));
       setAuthMessage('');
       setView('quest');
     }
@@ -2471,7 +2485,7 @@ export default function App() {
     setChestOpened(dailyCheckedProgress.chestOpened ?? defaultProgress.chestOpened);
     setCountry(dailyCheckedProgress.country ?? defaultProgress.country);
     setCity(dailyCheckedProgress.city ?? defaultProgress.city);
-    setSettings(nextSettings);
+    setSettings(normalizeSettings(nextSettings));
     setSelected(null);
     setShowHint(false);
     setTimeLeft(bossModeTimeLimit);
@@ -2513,7 +2527,7 @@ export default function App() {
     void supabase.auth.signOut();
     setPlayerName(name);
     setProfileImageUrl(accounts[name].avatarUrl ?? '');
-    applyProgress(accounts[name].progress, accounts[name].settings);
+    applyProgress(accounts[name].progress, normalizeSettings(accounts[name].settings));
     clearAuthForm();
     setView('quest');
   }
@@ -2582,7 +2596,7 @@ export default function App() {
     setOauthUserId('');
     setProfileImageUrl('');
     localStorage.removeItem(oauthPlayerKey);
-    applyProgress(readJson(guestProgressKey, defaultProgress), readJson(guestSettingsKey, defaultSettings));
+    applyProgress(readJson(guestProgressKey, defaultProgress), normalizeSettings(readJson(guestSettingsKey, defaultSettings)));
     setView('quest');
   }
 
@@ -2626,6 +2640,7 @@ export default function App() {
 
   return (
     <main className="game-shell">
+      <BackgroundMusic enabled={Boolean(settings.music)} />
       {showWelcomeScreen && (
         <button className="welcome-screen" type="button" onClick={() => setShowWelcomeScreen(false)}>
           <span className="eyebrow">{t('languageQuest')}</span>
@@ -3230,6 +3245,17 @@ export default function App() {
                 type="checkbox"
                 checked={settings.sound}
                 onChange={(event) => setSettings((value) => ({ ...value, sound: event.target.checked }))}
+              />
+            </label>
+            <label className="toggle-row">
+              <span>
+                <strong><StatLabel icon={Music}>{t('music')}</StatLabel></strong>
+                <small>{t('musicHint')}</small>
+              </span>
+              <input
+                type="checkbox"
+                checked={Boolean(settings.music)}
+                onChange={(event) => setSettings((value) => ({ ...value, music: event.target.checked }))}
               />
             </label>
             <label className="toggle-row">
