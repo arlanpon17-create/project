@@ -239,6 +239,7 @@ const accountsKey = 'language-quest-accounts';
 const guestProgressKey = 'language-quest-guest-progress';
 const guestSettingsKey = 'language-quest-guest-settings';
 const interfaceLanguageKey = 'language-quest-interface-language';
+const tutorialSeenKey = 'language-quest-tutorial-seen';
 const oauthPlayerKey = 'language-quest-oauth-player';
 const maxHearts = 5;
 const heartRefillMs = 60 * 60 * 1000;
@@ -1327,6 +1328,14 @@ const allQuests = [...quests, ...hardLanguageQuests];
 const availableLanguages: Exclude<Language, 'All'>[] = Array.from(new Set(allQuests.map((quest) => quest.language)));
 const playableLanguageOptions: Language[] = ['All', ...availableLanguages];
 
+const tutorialLessonPack: LessonPack = {
+  id: 'tutorial',
+  title: 'Tutorial lesson',
+  description: 'Learn the basics: choose answers, continue, and watch hearts.',
+  keywords: ['hello', 'water', 'book', 'school', 'friend', 'house', 'red', 'thank you'],
+  size: 5,
+};
+
 const topicLessonPacks: LessonPack[] = [
   {
     id: 'basics',
@@ -1596,6 +1605,7 @@ const lessonPacks: LessonPack[] = [
   ...languageLessonPacks,
   ...miniLanguageLessonPacks,
 ];
+const playableLessonPacks: LessonPack[] = [tutorialLessonPack, ...lessonPacks];
 
 type LessonAlbumId = 'topics' | 'languages' | 'world' | 'challenge';
 
@@ -1638,7 +1648,7 @@ const languageCards = availableLanguages.map((language) => ({
 
 function matchesLessonPack(quest: Quest, packId: LessonPackId | null): boolean {
   if (!packId) return true;
-  const pack = lessonPacks.find((item) => item.id === packId);
+  const pack = playableLessonPacks.find((item) => item.id === packId);
   if (!pack) return true;
 
   if (pack.language) {
@@ -1650,7 +1660,7 @@ function matchesLessonPack(quest: Quest, packId: LessonPackId | null): boolean {
 }
 
 function getRandomLessonQuestions(packId: LessonPackId, hardMode = false) {
-  const pack = lessonPacks.find((item) => item.id === packId);
+  const pack = playableLessonPacks.find((item) => item.id === packId);
   const questionCount = pack?.size ?? defaultLessonQuestionCount;
   const questionPool = hardMode ? hardLanguageQuests : allQuests;
   const matchingQuests = questionPool.filter((quest) => matchesLessonPack(quest, packId));
@@ -1673,6 +1683,7 @@ export default function App() {
   });
   const t = (key: InterfaceMessageKey) => getInterfaceMessage(interfaceLanguage, key);
   const [showWelcomeScreen, setShowWelcomeScreen] = useState(true);
+  const [showTutorial, setShowTutorial] = useState(() => localStorage.getItem(tutorialSeenKey) !== 'true');
   const [playerName, setPlayerName] = useState(() => localStorage.getItem('language-quest-player') || '');
   const [oauthUserId, setOauthUserId] = useState(() => localStorage.getItem(oauthPlayerKey) || '');
   const [selectedLessonPack, setSelectedLessonPack] = useState<LessonPackId | null>(null);
@@ -1772,6 +1783,7 @@ export default function App() {
   const [isAutoGeneratingQuestion, setIsAutoGeneratingQuestion] = useState(false);
   const [shopMessage, setShopMessage] = useState('');
   const [rewardAnimation, setRewardAnimation] = useState('');
+  const [streakAnimation, setStreakAnimation] = useState('');
   const [timeLeft, setTimeLeft] = useState(bossModeTimeLimit);
   const [refillLabel, setRefillLabel] = useState(() => formatRefillTime(heartRefillAt));
   const generatedAiQuestionSlots = useRef(new Set<string>());
@@ -1797,7 +1809,7 @@ export default function App() {
   const shieldActive = isShieldActive(streakShieldUntil);
   const currentQuest = activeQuests[questIndex];
   const currentOptions = useMemo(() => (currentQuest ? shuffleOptions(currentQuest.options) : []), [currentQuest]);
-  const selectedLesson = selectedLessonPack ? lessonPacks.find((lessonPack) => lessonPack.id === selectedLessonPack) ?? null : null;
+  const selectedLesson = selectedLessonPack ? playableLessonPacks.find((lessonPack) => lessonPack.id === selectedLessonPack) ?? null : null;
   const visibleLessonPacks = useMemo(
     () => lessonPacks.filter((lessonPack) => getLessonAlbumId(lessonPack) === selectedLessonAlbum),
     [selectedLessonAlbum],
@@ -1830,8 +1842,9 @@ export default function App() {
   };
   const feedback = useMemo(() => {
     if (!selected) return '';
-    return selected === currentQuest?.answer ? 'Correct. The path opens.' : 'Not quite. Try the hint and keep moving.';
-  }, [currentQuest?.answer, selected]);
+    const heartLoss = hardModeEnabled ? 2 : 1;
+    return selected === currentQuest?.answer ? 'Correct. The path opens.' : `Not quite. -${heartLoss} heart${heartLoss === 1 ? '' : 's'}. Try the hint and keep moving.`;
+  }, [currentQuest?.answer, hardModeEnabled, selected]);
 
   useEffect(() => {
     localStorage.setItem(interfaceLanguageKey, interfaceLanguage);
@@ -1995,6 +2008,13 @@ export default function App() {
   }, [rewardAnimation]);
 
   useEffect(() => {
+    if (!streakAnimation) return;
+
+    const timeoutId = window.setTimeout(() => setStreakAnimation(''), 2600);
+    return () => window.clearTimeout(timeoutId);
+  }, [streakAnimation]);
+
+  useEffect(() => {
     if (!bossModeEnabled || isComplete || selected || view !== 'quest') {
       return;
     }
@@ -2076,15 +2096,13 @@ export default function App() {
     };
   }
 
-  function saveGame() {
-    const progress = getCurrentProgress();
-
+  function persistProgress(progress: PlayerProgress) {
     if (oauthUserId) {
       localStorage.setItem(getOAuthProgressKey(oauthUserId), JSON.stringify(progress));
       localStorage.setItem(getOAuthSettingsKey(oauthUserId), JSON.stringify(settings));
       localStorage.setItem(getOAuthAvatarKey(oauthUserId), profileImageUrl);
       localStorage.setItem(oauthPlayerKey, oauthUserId);
-      setSaveMessage(`Saved ${playerName}'s game.`);
+      localStorage.setItem('language-quest-player', playerName);
       return;
     }
 
@@ -2094,13 +2112,32 @@ export default function App() {
         accounts[playerName] = { ...accounts[playerName], progress, settings, avatarUrl: profileImageUrl };
         writeAccounts(accounts);
         localStorage.setItem('language-quest-player', playerName);
-        setSaveMessage(`Saved ${playerName}'s game.`);
         return;
       }
     }
 
     localStorage.setItem(guestProgressKey, JSON.stringify(progress));
     localStorage.setItem(guestSettingsKey, JSON.stringify(settings));
+  }
+
+  function saveGame() {
+    const progress = getCurrentProgress();
+
+    persistProgress(progress);
+
+    if (oauthUserId) {
+      setSaveMessage(`Saved ${playerName}'s game.`);
+      return;
+    }
+
+    if (playerName) {
+      const accounts = readAccounts();
+      if (accounts[playerName]) {
+        setSaveMessage(`Saved ${playerName}'s game.`);
+        return;
+      }
+    }
+
     setSaveMessage('Saved guest game.');
   }
 
@@ -2156,12 +2193,21 @@ export default function App() {
   function completeDailyLesson() {
     const today = getLocalDateKey();
     if (lastDailyLessonDate === today) {
+      persistProgress(getCurrentProgress());
       setRewardAnimation('Lesson complete');
       return;
     }
 
-    setStreak((value) => value + 1);
+    const nextProgress = {
+      ...getCurrentProgress(),
+      streak: streak + 1,
+      lastDailyLessonDate: today,
+    };
+
+    setStreak(nextProgress.streak);
     setLastDailyLessonDate(today);
+    persistProgress(nextProgress);
+    setStreakAnimation(`${nextProgress.streak} day streak`);
     setRewardAnimation('Daily lesson complete +1 streak');
   }
 
@@ -2566,6 +2612,18 @@ export default function App() {
     }
   }
 
+  function finishTutorial() {
+    localStorage.setItem(tutorialSeenKey, 'true');
+    setShowTutorial(false);
+    setView('start');
+  }
+
+  function startTutorialLesson() {
+    localStorage.setItem(tutorialSeenKey, 'true');
+    setShowTutorial(false);
+    startLessonPack('tutorial');
+  }
+
   return (
     <main className="game-shell">
       {showWelcomeScreen && (
@@ -2575,9 +2633,49 @@ export default function App() {
           <span>{t('clickToContinue')}</span>
         </button>
       )}
+      {!showWelcomeScreen && showTutorial && (
+        <section className="tutorial-screen" aria-label="New player tutorial">
+          <div className="tutorial-card">
+            <p className="eyebrow">Quick tutorial</p>
+            <h2>How to start</h2>
+            <div className="tutorial-steps">
+              <div>
+                <strong>1. Choose a language</strong>
+                <p>Use Languages or Play. Flags help you find each language fast.</p>
+              </div>
+              <div>
+                <strong>2. Answer questions</strong>
+                <p>Pick an answer, press Continue, and earn score, XP, or diamonds.</p>
+              </div>
+              <div>
+                <strong>3. Watch hearts</strong>
+                <p>Each mistake takes -1 heart in normal mode. Hard mode takes -2 hearts.</p>
+              </div>
+            </div>
+            <div className="tutorial-actions">
+              <button className="secondary" type="button" onClick={finishTutorial}>
+                Skip tutorial
+              </button>
+              <button type="button" onClick={startTutorialLesson}>
+                <ButtonLabel icon={GraduationCap}>Start tutorial lesson</ButtonLabel>
+              </button>
+              <button type="button" onClick={finishTutorial}>
+                <ButtonLabel icon={Play}>Start learning</ButtonLabel>
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
       {rewardAnimation && (
         <div className="reward-pop" role="status" aria-live="polite">
           <span>{rewardAnimation}</span>
+        </div>
+      )}
+      {streakAnimation && (
+        <div className="streak-pop" role="status" aria-live="polite">
+          <Flame aria-hidden="true" size={34} strokeWidth={2.4} />
+          <strong>{streakAnimation}</strong>
+          <span>Keep going</span>
         </div>
       )}
       <section className="quest-panel" aria-label="Language Quest">
