@@ -61,9 +61,9 @@ export default function BackgroundMusic({ enabled }: BackgroundMusicProps) {
         const melodyFrequency = melody[step % melody.length];
         const bassFrequency = bass[Math.floor(step / 2) % bass.length];
 
-        playTone(context, melodyFrequency, startTime, 1.05, 0.012, 'sine');
+        playTone(context, melodyFrequency, startTime, 1.05, 0.026, 'sine');
         if (step % 2 === 0) {
-          playTone(context, bassFrequency, startTime, 1.4, 0.01, 'sine');
+          playTone(context, bassFrequency, startTime, 1.4, 0.018, 'sine');
         }
 
         stepRef.current = step + 1;
