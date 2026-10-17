@@ -41,8 +41,12 @@ export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove 
   );
   const targets = new Set(legalMoves.map((move) => move.to));
   const moves = game.history({ verbose: true });
-  const whitePoints = moves.filter((move) => move.color === 'w' && move.captured).reduce((total, move) => total + pieceValues[move.captured ?? 'p'], 0);
-  const blackPoints = moves.filter((move) => move.color === 'b' && move.captured).reduce((total, move) => total + pieceValues[move.captured ?? 'p'], 0);
+  const whitePoints = moves.reduce((total, move) => {
+    if (!move.captured) return total;
+    const value = pieceValues[move.captured];
+    return total + (move.color === 'w' ? value : -value);
+  }, 0);
+  const blackPoints = -whitePoints;
   const yourPoints = mode === 'online' && playerColor === 'b' ? blackPoints : whitePoints;
 
   useEffect(() => {
@@ -165,7 +169,7 @@ export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove 
       <div className="chess-capture-points" aria-live="polite">
         <strong>{mode === 'local' ? 'Capture points' : `Your points: ${yourPoints}`}</strong>
         <span>White: {whitePoints} · Black: {blackPoints}</span>
-        <small>Pawn 1 · Knight/Bishop 3 · Rook 5 · Queen 9</small>
+        <small>Taking a piece adds its value; losing one deducts it. Pawn 1 · Knight/Bishop 3 · Rook 5 · Queen 9</small>
       </div>
       {game.isGameOver() && <p className="chess-game-result">Game saved to your history: {game.isCheckmate() ? 'checkmate' : 'draw'}.</p>}
       <div className="chess-move-list"><strong>Moves</strong><span>{history.length ? history.slice(-8).join(' · ') : 'Make the first move.'}</span></div>
