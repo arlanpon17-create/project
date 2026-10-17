@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { BookOpen, Globe2, RotateCcw, UserRound, Users } from 'lucide-react';
+import { BookOpen, Globe2, History, RotateCcw, UserRound, Users } from 'lucide-react';
 import ChessGame from './ChessGame';
 import ChessLessons from './ChessLessons';
 import ChessTrainer from './ChessTrainer';
+import ChessHistory from './ChessHistory';
 import OnlineChess from './OnlineChess';
 
-type CourseView = 'home' | 'study' | 'trainer' | 'play' | 'online';
+type CourseView = 'home' | 'study' | 'trainer' | 'play' | 'online' | 'history';
 type GameMode = 'trainer' | 'local';
 
 export default function ChessCourse({ displayName }: { displayName: string }) {
@@ -32,10 +33,14 @@ export default function ChessCourse({ displayName }: { displayName: string }) {
           <button className="chess-choice" type="button" onClick={() => setCourseView('online')}>
             <Globe2 aria-hidden="true" size={28} /><strong>Random online player</strong><span>Challenge someone online. They can accept or decline.</span>
           </button>
+          <button className="chess-choice" type="button" onClick={() => setCourseView('history')}>
+            <History aria-hidden="true" size={28} /><strong>Game history & analysis</strong><span>Review completed games, results, and capture points.</span>
+          </button>
         </div>
       )}
       {courseView === 'study' && <ChessLessons onStartTrainer={() => setCourseView('trainer')} />}
       {courseView === 'trainer' && <ChessTrainer />}
+      {courseView === 'history' && <ChessHistory />}
       {courseView === 'online' && <OnlineChess displayName={displayName} />}
       {courseView === 'play' && (
         <>

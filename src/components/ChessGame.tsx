@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chess, type Square } from 'chess.js';
+import { saveChessRecord } from '../lib/chessRecords';
 
 type OnlineMove = { id: string; from: string; to: string; promotion: 'q' };
 type Props = {
@@ -31,6 +32,7 @@ export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove 
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<Square | null>(null);
   const lastRemoteMoveRef = useRef('');
+  const savedGameRef = useRef(false);
   const game = gameRef.current;
   const legalMoves = useMemo(
     () => selected ? game.moves({ square: selected, verbose: true }) : [],
@@ -38,6 +40,21 @@ export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove 
     [game, revision, selected],
   );
   const targets = new Set(legalMoves.map((move) => move.to));
+  const moves = game.history({ verbose: true });
+  const whitePoints = moves.filter((move) => move.color === 'w' && move.captured).reduce((total, move) => total + pieceValues[move.captured ?? 'p'], 0);
+  const blackPoints = moves.filter((move) => move.color === 'b' && move.captured).reduce((total, move) => total + pieceValues[move.captured ?? 'p'], 0);
+  const yourPoints = mode === 'online' && playerColor === 'b' ? blackPoints : whitePoints;
+
+  useEffect(() => {
+    if (!game.isGameOver() || savedGameRef.current) return;
+    savedGameRef.current = true;
+    const result = game.isCheckmate()
+      ? `${game.turn() === 'w' ? 'Black' : 'White'} won by checkmate`
+      : game.isStalemate() ? 'Draw by stalemate' : 'Draw';
+    void saveChessRecord({ mode, result, pgn: game.pgn(), white_points: whitePoints, black_points: blackPoints }).catch(() => {
+      savedGameRef.current = false;
+    });
+  }, [blackPoints, game, mode, revision, whitePoints]);
 
   useEffect(() => {
     if (mode !== 'trainer' || game.turn() !== 'b' || game.isGameOver()) return;
@@ -73,6 +90,7 @@ export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove 
 
   function startNewGame() {
     gameRef.current = new Chess();
+    savedGameRef.current = false;
     setSelected(null);
     setRevision((value) => value + 1);
   }
@@ -144,6 +162,12 @@ export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove 
           );
         })}
       </div>
+      <div className="chess-capture-points" aria-live="polite">
+        <strong>{mode === 'local' ? 'Capture points' : `Your points: ${yourPoints}`}</strong>
+        <span>White: {whitePoints} · Black: {blackPoints}</span>
+        <small>Pawn 1 · Knight/Bishop 3 · Rook 5 · Queen 9</small>
+      </div>
+      {game.isGameOver() && <p className="chess-game-result">Game saved to your history: {game.isCheckmate() ? 'checkmate' : 'draw'}.</p>}
       <div className="chess-move-list"><strong>Moves</strong><span>{history.length ? history.slice(-8).join(' · ') : 'Make the first move.'}</span></div>
     </section>
   );
