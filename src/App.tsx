@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import {
   ArrowRight,
@@ -15,6 +15,7 @@ import {
   GraduationCap,
   Heart,
   Home,
+  Lightbulb,
   Lock,
   LogIn,
   LogOut,
@@ -43,12 +44,6 @@ import InterfaceLanguageSelect from './components/InterfaceLanguageSelect';
 import LessonAiPicker from './components/LessonAiPicker';
 import type { AiLessonOption } from './components/LessonAiPicker';
 import Leaderboard from './components/Leaderboard';
-import QuestionAiHelp from './components/QuestionAiHelp';
-import {
-  createAiHint,
-  createAiQuestion,
-  type QuestionContext,
-} from './lib/aiQuestions';
 import {
   getInterfaceMessage,
   type InterfaceLanguage,
@@ -56,40 +51,11 @@ import {
 } from './lib/interfaceLanguage';
 import { supabase } from './lib/supabase';
 import type { PlayerSnapshot } from './lib/rewards';
-
-type Language =
-  | 'All'
-  | 'Kazakh'
-  | 'Spanish'
-  | 'French'
-  | 'German'
-  | 'English'
-  | 'Portuguese'
-  | 'Italian'
-  | 'Russian'
-  | 'Japanese'
-  | 'Chinese'
-  | 'Korean'
-  | 'Arabic'
-  | 'Hindi'
-  | 'Turkish'
-  | 'Swedish'
-  | 'Dutch'
-  | 'Vietnamese'
-  | 'Polish'
-  | 'Greek'
-  | 'Indonesian'
-  | 'Thai'
-  | 'Ukrainian'
-  | 'Finnish'
-  | 'Norwegian'
-  | 'Danish'
-  | 'Czech'
-  | 'Romanian'
-  | 'Hebrew'
-  | 'Malay'
-  | 'Filipino';
-type View = 'start' | 'quest' | 'languages' | 'lessons' | 'shop' | 'rewards' | 'leaderboard' | 'login' | 'register' | 'settings';
+import { additionalLanguageQuests } from './lib/extraLanguageQuests';
+import type { Language, Quest } from './lib/questTypes';
+import ChessCourse from './components/ChessCourse';
+import MusicCourse from './components/MusicCourse';
+type View = 'start' | 'quest' | 'languages' | 'lessons' | 'chess' | 'music' | 'shop' | 'rewards' | 'leaderboard' | 'login' | 'register' | 'settings';
 type LessonPackId = string;
 type LessonPack = {
   id: LessonPackId;
@@ -151,7 +117,7 @@ function ProfileAvatar({ name, imageUrl }: { name: string; imageUrl: string }) {
   );
 }
 
-const languageFlags: Record<Language, string> = {
+const languageFlags: Partial<Record<Language, string>> = {
   All: '🌐',
   Kazakh: '🇰🇿',
   Spanish: '🇪🇸',
@@ -185,10 +151,15 @@ const languageFlags: Record<Language, string> = {
   Filipino: '🇵🇭',
 };
 
+languageFlags.Swahili = '🌍';
+languageFlags.Bengali = '🇧🇩';
+languageFlags.Urdu = '🇵🇰';
+languageFlags.Persian = '🇮🇷';
+
 function FlagLabel({ language }: { language: Language }) {
   return (
     <span className="flag-label">
-      <span className="language-flag" aria-hidden="true">{languageFlags[language]}</span>
+      <span className="language-flag" aria-hidden="true">{languageFlags[language] ?? '🌐'}</span>
       <span>{language}</span>
     </span>
   );
@@ -228,15 +199,6 @@ type Account = {
 };
 
 type Accounts = Record<string, Account>;
-
-type Quest = {
-  prompt: string;
-  answer: string;
-  options: string[];
-  hint: string;
-  world: string;
-  language: Exclude<Language, 'All'>;
-};
 
 const accountsKey = 'language-quest-accounts';
 const guestProgressKey = 'language-quest-guest-progress';
@@ -1334,6 +1296,7 @@ const quests: Quest[] = [
   ...newLanguageQuests,
   ...moreLanguageQuests,
   ...evenMoreLanguageQuests,
+  ...additionalLanguageQuests,
 ];
 const allQuests = [...quests, ...hardLanguageQuests];
 const availableLanguages: Exclude<Language, 'All'>[] = Array.from(new Set(allQuests.map((quest) => quest.language)));
@@ -1675,7 +1638,9 @@ function getRandomLessonQuestions(packId: LessonPackId, hardMode = false) {
   const questionCount = pack?.size ?? defaultLessonQuestionCount;
   const questionPool = hardMode ? hardLanguageQuests : allQuests;
   const matchingQuests = questionPool.filter((quest) => matchesLessonPack(quest, packId));
-  const fallbackPool = hardMode ? hardLanguageQuests : quests;
+  const fallbackPool = pack?.language
+    ? quests.filter((quest) => quest.language === pack.language)
+    : hardMode ? hardLanguageQuests : quests;
   const sourceQuests = matchingQuests.length > 0 ? matchingQuests : fallbackPool;
   const selectedQuestions: Quest[] = [];
 
@@ -1791,16 +1756,11 @@ export default function App() {
     return progress.chestOpened ?? defaultProgress.chestOpened;
   });
   const [showHint, setShowHint] = useState(false);
-  const [aiHint, setAiHint] = useState('');
-  const [isAiHintLoading, setIsAiHintLoading] = useState(false);
-  const [aiQuestionMessage, setAiQuestionMessage] = useState('');
-  const [isAutoGeneratingQuestion, setIsAutoGeneratingQuestion] = useState(false);
   const [shopMessage, setShopMessage] = useState('');
   const [rewardAnimation, setRewardAnimation] = useState('');
   const [streakAnimation, setStreakAnimation] = useState('');
   const [timeLeft, setTimeLeft] = useState(bossModeTimeLimit);
   const [refillLabel, setRefillLabel] = useState(() => formatRefillTime(heartRefillAt));
-  const generatedAiQuestionSlots = useRef(new Set<string>());
 
   const activeQuests = useMemo(() => {
     if (selectedLessonQuests) {
@@ -1811,7 +1771,8 @@ export default function App() {
 
     if (selectedLanguage !== 'All') {
       const filtered = questPool.filter((quest) => quest.language === selectedLanguage);
-      return filtered.length > 0 ? filtered : questPool;
+      if (filtered.length > 0) return filtered;
+      return quests.filter((quest) => quest.language === selectedLanguage);
     }
 
     return questPool;
@@ -1956,47 +1917,6 @@ export default function App() {
       setQuestIndex(activeQuests.length);
     }
   }, [activeQuests.length, questIndex]);
-
-  useEffect(() => {
-    if (view !== 'quest' || isComplete || selected || !currentQuest || isAutoGeneratingQuestion) {
-      return;
-    }
-
-    const slotKey = `${selectedLessonPack ?? selectedLanguage}-${questIndex}`;
-    if (generatedAiQuestionSlots.current.has(slotKey)) {
-      return;
-    }
-
-    let isCancelled = false;
-    generatedAiQuestionSlots.current.add(slotKey);
-    setIsAutoGeneratingQuestion(true);
-    setAiQuestionMessage('AI is creating a question...');
-
-    async function createQuestion() {
-      const questionContext: QuestionContext = {
-        prompt: currentQuest.prompt,
-        options: currentQuest.options,
-        hint: currentQuest.hint,
-        language: currentQuest.language,
-      };
-      const { question: nextQuestion, error } = await createAiQuestion(questionContext);
-      if (isCancelled) return;
-      if (nextQuestion) {
-        useAiQuestion(nextQuestion);
-        setAiQuestionMessage('AI made this question.');
-      } else {
-        setAiQuestionMessage(error || 'AI made a broken question, so this normal question stays.');
-      }
-
-      setIsAutoGeneratingQuestion(false);
-    }
-
-    void createQuestion();
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [activeQuests, currentQuest, isComplete, questIndex, selected, selectedLanguage, selectedLessonPack, view]);
 
   useEffect(() => {
     if (!selectedLessonPack || !isComplete || lessonStreakAwarded) {
@@ -2158,7 +2078,6 @@ export default function App() {
   function resetRun(restoreHearts = false) {
     setQuestIndex(0);
     setSelected(null);
-    generatedAiQuestionSlots.current.clear();
     if (restoreHearts) {
       setHearts(maxHearts);
       setHeartRefillAt(null);
@@ -2167,10 +2086,6 @@ export default function App() {
     setLessonStreakAwarded(false);
     setChestOpened(false);
     setShowHint(false);
-    setAiHint('');
-    setIsAiHintLoading(false);
-    setAiQuestionMessage('');
-    setIsAutoGeneratingQuestion(false);
     setTimeLeft(bossModeTimeLimit);
   }
 
@@ -2382,48 +2297,6 @@ export default function App() {
     setQuestIndex((value) => value + 1);
     setSelected(null);
     setShowHint(false);
-    setAiHint('');
-    setIsAutoGeneratingQuestion(false);
-    setAiQuestionMessage('');
-    setTimeLeft(bossModeTimeLimit);
-  }
-
-  async function showAiHint() {
-    if (!currentQuest || isAiHintLoading) return;
-    setShowHint(true);
-    setAiHint('AI is making a hint...');
-    setIsAiHintLoading(true);
-
-    const { text, error } = await createAiHint({
-      prompt: currentQuest.prompt,
-      options: currentOptions,
-      hint: currentQuest.hint,
-      language: currentQuest.language,
-    });
-
-    setAiHint(text || error || currentQuest.hint);
-    setIsAiHintLoading(false);
-  }
-
-  function useAiQuestion(question: Required<QuestionContext>) {
-    const language = playableLanguageOptions.includes(question.language as Language)
-      ? question.language as Exclude<Language, 'All'>
-      : currentQuest.language;
-    const nextQuestion: Quest = {
-      prompt: question.prompt,
-      answer: question.answer,
-      options: question.options,
-      hint: question.hint,
-      world: question.world,
-      language,
-    };
-    const nextQuests = [...activeQuests];
-    nextQuests[questIndex] = nextQuestion;
-
-    setSelectedLessonQuests(nextQuests);
-    setSelected(null);
-    setShowHint(false);
-    setAiHint('');
     setTimeLeft(bossModeTimeLimit);
   }
 
@@ -2720,6 +2593,12 @@ export default function App() {
           <button className={view === 'lessons' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('lessons')}>
             <ButtonLabel icon={GraduationCap}>{t('lessons')}</ButtonLabel>
           </button>
+          <button className={view === 'chess' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('chess')}>
+            <ButtonLabel icon={Gamepad2}>Chess</ButtonLabel>
+          </button>
+          <button className={view === 'music' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('music')}>
+            <ButtonLabel icon={Music}>Music</ButtonLabel>
+          </button>
           <button className={view === 'shop' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('shop')}>
             <ButtonLabel icon={ShoppingBag}>{t('shop')}</ButtonLabel>
           </button>
@@ -2839,6 +2718,9 @@ export default function App() {
             </div>
           </section>
         )}
+
+        {view === 'chess' && <ChessCourse displayName={playerName || 'Guest'} />}
+        {view === 'music' && <MusicCourse />}
 
         {view === 'lessons' && (
           <section className="menu-panel lessons-panel" aria-label="Lessons">
@@ -3406,7 +3288,6 @@ export default function App() {
             <p className="world">{currentQuest.world}</p>
             <p className="quest-count">{currentQuest.language} quest {questIndex + 1} of {activeQuests.length}</p>
             <h2>{currentQuest.prompt}</h2>
-            {aiQuestionMessage && <p className="feedback">{aiQuestionMessage}</p>}
 
             <div className="answers">
               {currentOptions.map((option) => {
@@ -3426,21 +3307,10 @@ export default function App() {
               })}
             </div>
 
-            <QuestionAiHelp
-              key={`${currentQuest.language}-${currentQuest.world}-${currentQuest.prompt}`}
-              question={{
-                prompt: currentQuest.prompt,
-                options: currentOptions,
-                hint: currentQuest.hint,
-                language: currentQuest.language,
-              }}
-              onQuestionGenerated={useAiQuestion}
-            />
-
             <div className="quest-actions">
               {!hardModeEnabled ? (
-                <button className="secondary" type="button" onClick={() => void showAiHint()} disabled={isAiHintLoading}>
-                  <ButtonLabel icon={Sparkles}>{isAiHintLoading ? 'AI hint...' : 'AI Hint'}</ButtonLabel>
+                <button className="secondary" type="button" onClick={() => setShowHint(true)}>
+                  <ButtonLabel icon={Lightbulb}>Hint</ButtonLabel>
                 </button>
               ) : (
                 <span className="feedback" style={{ marginRight: '0.75rem' }}>Hints are off in hard mode.</span>
@@ -3452,7 +3322,7 @@ export default function App() {
 
             {(showHint || feedback) && (
               <p className={selected === currentQuest.answer ? 'feedback feedback--good' : `feedback ${feedback ? '' : 'feedback--hint'}`}>
-                {feedback || aiHint || currentQuest.hint}
+                {feedback || currentQuest.hint}
               </p>
             )}
           </div>

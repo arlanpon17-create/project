@@ -12,14 +12,18 @@ type SpeechRecognitionResult = {
 type SpeechRecognitionEvent = Event & {
   results: ArrayLike<ArrayLike<SpeechRecognitionResult>>;
 };
+type SpeechRecognitionErrorEvent = Event & {
+  error: string;
+};
 type SpeechRecognitionInstance = {
   lang: string;
   interimResults: boolean;
+  continuous: boolean;
   maxAlternatives: number;
   start: () => void;
   stop: () => void;
   onresult: ((event: SpeechRecognitionEvent) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
   onend: (() => void) | null;
 };
 
@@ -104,17 +108,24 @@ export default function SpeechPractice({ language, target, onPassed }: Props) {
 
     const recognition = new Recognition();
     recognition.lang = languageCodes[language] ?? 'en-US';
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.maxAlternatives = 3;
     recognition.onresult = (event) => {
-      const heard = event.results[0]?.[0]?.transcript ?? '';
+      const alternatives = event.results[event.results.length - 1];
+      const heard = Array.from(alternatives ?? [], (result) => result.transcript)
+        .reduce((best, option) => getScore(target, option) > getScore(target, best) ? option : best, '');
       const nextScore = getScore(target, heard);
       setTranscript(heard);
       setScore(nextScore);
-      setMessage(nextScore >= 60 ? 'Good speaking. Keep repeating it.' : 'Try again slowly, word by word.');
-      if (nextScore >= 60) onPassed();
+      setMessage(nextScore >= 50 ? 'Good speaking. Keep repeating it.' : 'I heard you. Try once more, slowly and clearly.');
+      if (nextScore >= 50) onPassed();
     };
-    recognition.onerror = () => setMessage('I could not hear clearly. Try again closer to the microphone.');
+    recognition.onerror = (event) => setMessage(
+      event.error === 'not-allowed'
+        ? 'Please allow microphone access, then tap Listen to me again.'
+        : 'I could not hear clearly. Try again closer to the microphone.',
+    );
     recognition.onend = () => setIsListening(false);
     recognitionRef.current = recognition;
     setTranscript('');
@@ -154,7 +165,7 @@ export default function SpeechPractice({ language, target, onPassed }: Props) {
       </button>
       {(message || transcript) && (
         <div className="speech-result">
-          {score !== null && (score >= 60 ? <Check aria-hidden="true" size={18} /> : <X aria-hidden="true" size={18} />)}
+          {score !== null && (score >= 50 ? <Check aria-hidden="true" size={18} /> : <X aria-hidden="true" size={18} />)}
           <span>
             {message}
             {transcript && <small>Heard: {transcript}{score !== null ? ` (${score}%)` : ''}</small>}

@@ -98,7 +98,7 @@ export default function AITutor({ languages, onTrainingComplete }: Props) {
       </div>
 
       <div className="ai-tutor-controls">
-        <label>Language
+        <label>Language you are learning
           <select value={language} onChange={(event) => setLanguage(event.target.value)}>
             {tutorLanguages.map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
