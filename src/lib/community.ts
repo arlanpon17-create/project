@@ -23,6 +23,30 @@ export async function saveProfile(profile: PlayerProfile) {
   if (error) throw error;
 }
 
+export async function uploadProfileAvatar(userId: string, file: File) {
+  const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+  if (!allowedTypes.includes(file.type)) throw new Error('Choose a JPG, PNG, or WebP image.');
+  if (file.size > 3 * 1024 * 1024) throw new Error('Profile pictures must be 3 MB or smaller.');
+
+  const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg';
+  const path = `${userId}/${crypto.randomUUID()}.${extension}`;
+  const { error: uploadError } = await supabase.storage.from('player-avatars').upload(path, file, {
+    cacheControl: '3600',
+    contentType: file.type,
+  });
+  if (uploadError) throw uploadError;
+
+  const { data } = supabase.storage.from('player-avatars').getPublicUrl(path);
+  return data.publicUrl;
+}
+
+export async function deletePreviousAvatar(userId: string, previousUrl: string) {
+  const previousPath = getAvatarPath(previousUrl, userId);
+  if (!previousPath) return;
+  const { error } = await supabase.storage.from('player-avatars').remove([previousPath]);
+  if (error) throw error;
+}
+
 export async function findProfiles(username: string, ownId: string) {
   const { data, error } = await supabase.from('player_profiles')
     .select('user_id, username, display_name, bio, avatar_url')
@@ -68,4 +92,12 @@ export async function acceptFriendRequest(id: string) {
 export async function removeFriendship(id: string) {
   const { error } = await supabase.from('friendships').delete().eq('id', id);
   if (error) throw error;
+}
+
+function getAvatarPath(url: string, userId: string) {
+  const marker = '/storage/v1/object/public/player-avatars/';
+  const markerIndex = url.indexOf(marker);
+  if (markerIndex < 0) return null;
+  const path = decodeURIComponent(url.slice(markerIndex + marker.length).split('?')[0]);
+  return path.startsWith(`${userId}/`) ? path : null;
 }

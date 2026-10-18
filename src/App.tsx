@@ -2725,7 +2725,10 @@ export default function App() {
         )}
 
         {view === 'chess' && <ChessCourse displayName={playerName || 'Guest'} accountId={oauthUserId} />}
-        {view === 'community' && <CommunityPage userId={oauthUserId} displayName={playerName || 'Player'} avatarUrl={profileImageUrl} onSignIn={() => void signInWithGoogle()} />}
+        {view === 'community' && <CommunityPage userId={oauthUserId} displayName={playerName || 'Player'} avatarUrl={profileImageUrl} onSignIn={() => void signInWithGoogle()} onAvatarChanged={(url) => {
+          setProfileImageUrl(url);
+          if (oauthUserId) localStorage.setItem(getOAuthAvatarKey(oauthUserId), url);
+        }} />}
         {view === 'music' && <MusicCourse />}
 
         {view === 'lessons' && (

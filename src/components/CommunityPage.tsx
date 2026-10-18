@@ -1,17 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
-  acceptFriendRequest, findProfiles, loadCommunity, removeFriendship,
-  saveProfile, sendFriendRequest, type Friendship, type PlayerProfile,
+  acceptFriendRequest, deletePreviousAvatar, findProfiles, loadCommunity,
+  removeFriendship, saveProfile, sendFriendRequest, type Friendship,
+  type PlayerProfile, uploadProfileAvatar,
 } from '../lib/community';
 import { supabase } from '../lib/supabase';
+import CommunityAvatar from './CommunityAvatar';
 
-type Props = { userId: string; displayName: string; avatarUrl: string; onSignIn: () => void };
+type Props = { userId: string; displayName: string; avatarUrl: string; onSignIn: () => void; onAvatarChanged: (url: string) => void };
 
-export default function CommunityPage({ userId, displayName, avatarUrl, onSignIn }: Props) {
+export default function CommunityPage({ userId, displayName, avatarUrl, onSignIn, onAvatarChanged }: Props) {
   const [profile, setProfile] = useState<PlayerProfile | null>(null);
   const [friends, setFriends] = useState<{ friendships: Friendship[]; profiles: PlayerProfile[] }>({ friendships: [], profiles: [] });
   const [search, setSearch] = useState('');
   const [results, setResults] = useState<PlayerProfile[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [message, setMessage] = useState('Loading your account…');
 
   const refreshFriends = useCallback(async () => {
@@ -25,9 +29,12 @@ export default function CommunityPage({ userId, displayName, avatarUrl, onSignIn
       supabaseProfile(userId), loadCommunity(userId),
     ]).then(([ownProfile, community]) => {
       if (!active) return;
-      const profileData = ownProfile ?? {
+      const profileData = ownProfile ? {
+        ...ownProfile,
+        avatar_url: ownProfile.avatar_url || avatarUrl,
+      } : {
         user_id: userId,
-        username: displayName.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 18) || `player${userId.slice(0, 6)}`,
+        username: `${displayName.toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 15) || 'player'}_${userId.slice(0, 6)}`,
         display_name: displayName,
         bio: '',
         avatar_url: avatarUrl,
@@ -35,20 +42,22 @@ export default function CommunityPage({ userId, displayName, avatarUrl, onSignIn
       setProfile(profileData);
       setFriends(community);
       setMessage('');
-      if (!ownProfile) void saveProfile(profileData).catch(() => setMessage('Set up your account profile after the database migration is applied.'));
-    }).catch(() => setMessage('Could not load accounts. Check your Supabase connection and apply the migration.'));
+      if (!ownProfile || (!ownProfile.avatar_url && avatarUrl)) {
+        void saveProfile(profileData).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Could not save your account profile.'));
+      }
+    }).catch((error: unknown) => setMessage(error instanceof Error ? `Could not load accounts: ${error.message}` : 'Could not load accounts.'));
     return () => { active = false; };
-  }, [avatarUrl, displayName, userId]);
+  }, [avatarUrl, displayName, loadAttempt, userId]);
 
-  if (!userId) return <section className="menu-panel community-page"><h2>Account & Friends</h2><p>Sign in with Google to create a public player profile, find friends, and challenge them to chess.</p><button type="button" onClick={onSignIn}>Sign in with Google</button></section>;
+  if (!userId) return <section className="menu-panel community-page"><h2>Account & Friends</h2><p>These features use cloud accounts. The app’s username/password accounts are saved only on this device, so sign in with Google to create a public profile, find friends, and challenge them to chess.</p><button type="button" onClick={onSignIn}>Sign in with Google</button></section>;
 
   async function searchPlayers(event: React.FormEvent) {
     event.preventDefault();
     try {
       setResults(await findProfiles(search.trim(), userId));
       setMessage('');
-    } catch {
-      setMessage('Could not search accounts.');
+    } catch (error) {
+      setMessage(error instanceof Error ? `Could not search accounts: ${error.message}` : 'Could not search accounts.');
     }
   }
 
@@ -62,7 +71,7 @@ export default function CommunityPage({ userId, displayName, avatarUrl, onSignIn
     }
   }
 
-  if (!profile) return <section className="menu-panel"><p role="status">{message}</p></section>;
+  if (!profile) return <section className="menu-panel"><p role="status">{message}</p><button type="button" onClick={() => setLoadAttempt((value) => value + 1)}>Try again</button></section>;
   const friendsById = new Map(friends.profiles.map((item) => [item.user_id, item]));
   const relationships = new Map(friends.friendships.map((item) => [
     item.requester_id === userId ? item.recipient_id : item.requester_id, item,
@@ -71,6 +80,28 @@ export default function CommunityPage({ userId, displayName, avatarUrl, onSignIn
   return (
     <section className="menu-panel community-page" aria-label="Account and friends">
       <p className="eyebrow">Your account</p><h2>{profile.display_name}</h2>
+      <div className="community-avatar-editor">
+        <CommunityAvatar name={profile.display_name} imageUrl={profile.avatar_url} />
+        <label className="secondary community-upload-button">
+          {uploading ? 'Uploading…' : 'Choose profile picture'}
+          <input type="file" accept="image/png,image/jpeg,image/webp" disabled={uploading} onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            setUploading(true);
+            setMessage('Uploading your picture…');
+            void uploadProfileAvatar(userId, file).then(async (url) => {
+              const updatedProfile = { ...profile, avatar_url: url };
+              await saveProfile(updatedProfile);
+              setProfile(updatedProfile);
+              onAvatarChanged(url);
+              await deletePreviousAvatar(userId, profile.avatar_url).catch(() => undefined);
+              setMessage('Profile picture saved.');
+            }).catch((error: unknown) => setMessage(error instanceof Error ? error.message : 'Could not upload the picture.')).finally(() => setUploading(false));
+            event.target.value = '';
+          }} />
+        </label>
+        <small>JPG, PNG, or WebP · up to 3 MB</small>
+      </div>
       <form className="community-profile-form" onSubmit={(event) => {
         event.preventDefault();
         void runAction(() => saveProfile(profile), 'Profile saved.');
@@ -88,6 +119,7 @@ export default function CommunityPage({ userId, displayName, avatarUrl, onSignIn
       {results.map((player) => {
         const relationship = relationships.get(player.user_id);
         return <article className="community-player" key={player.user_id}>
+          <CommunityAvatar name={player.display_name} imageUrl={player.avatar_url} small />
           <strong>{player.display_name} <small>@{player.username}</small></strong><p>{player.bio || 'No bio yet.'}</p>
           {relationship?.status === 'accepted' ? <span>Friend</span>
             : relationship ? <span>{relationship.requester_id === userId ? 'Request sent' : 'Request received'}</span>
@@ -101,6 +133,7 @@ export default function CommunityPage({ userId, displayName, avatarUrl, onSignIn
         const player = friendsById.get(otherId);
         const incoming = friendship.recipient_id === userId && friendship.status === 'pending';
         return <article className="community-player" key={friendship.id}>
+          {player && <CommunityAvatar name={player.display_name} imageUrl={player.avatar_url} small />}
           <strong>{player?.display_name ?? 'Player'} <small>@{player?.username ?? 'unknown'}</small></strong>
           {player?.bio && <p>{player.bio}</p>}
           {incoming ? <button type="button" onClick={() => void runAction(() => acceptFriendRequest(friendship.id), 'Friend request accepted.')}>Accept</button>

@@ -1692,6 +1692,17 @@ h2 {
 .community-player p { color: var(--muted); }
 .community-player p { margin: 0; }
 .community-search { grid-template-columns: 1fr auto; }
+.community-avatar-editor { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.community-avatar-editor small { flex-basis: 100%; color: var(--muted); }
+.community-avatar { display: inline-grid; width: 76px; height: 76px; flex: 0 0 auto; place-items: center; border-radius: 50%; object-fit: cover; background: #e9e4dc; color: var(--ink); font-size: 1.7rem; font-weight: 700; }
+.community-avatar--small { width: 42px; height: 42px; font-size: 1rem; }
+.community-avatar--empty { border: 1px solid var(--line); }
+.community-upload-button { display: inline-flex; cursor: pointer; align-items: center; padding: 9px 12px; border-radius: 10px; }
+.community-upload-button input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.community-player { grid-template-columns: auto 1fr; align-items: center; }
+.community-player > p,
+.community-player > button,
+.community-player > span { grid-column: 2; }
 
 .online-chess,
 .online-player-list,
