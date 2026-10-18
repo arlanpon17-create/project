@@ -1683,6 +1683,16 @@ h2 {
 .chess-history-card details { overflow-wrap: anywhere; }
 .chess-history-card summary { cursor: pointer; font-weight: 600; }
 
+.community-page { display: grid; gap: 12px; }
+.community-profile-form,
+.community-search { display: grid; gap: 10px; max-width: 520px; }
+.community-profile-form label { display: grid; gap: 5px; font-weight: 600; }
+.community-player { display: grid; gap: 7px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; }
+.community-player small,
+.community-player p { color: var(--muted); }
+.community-player p { margin: 0; }
+.community-search { grid-template-columns: 1fr auto; }
+
 .online-chess,
 .online-player-list,
 .music-course {

@@ -31,6 +31,7 @@ import {
   Timer,
   Trophy,
   UserPlus,
+  Users,
   Volume2,
   X,
 } from 'lucide-react';
@@ -54,8 +55,9 @@ import type { PlayerSnapshot } from './lib/rewards';
 import { additionalLanguageQuests } from './lib/extraLanguageQuests';
 import type { Language, Quest } from './lib/questTypes';
 import ChessCourse from './components/ChessCourse';
+import CommunityPage from './components/CommunityPage';
 import MusicCourse from './components/MusicCourse';
-type View = 'start' | 'quest' | 'languages' | 'lessons' | 'chess' | 'music' | 'shop' | 'rewards' | 'leaderboard' | 'login' | 'register' | 'settings';
+type View = 'start' | 'quest' | 'languages' | 'lessons' | 'chess' | 'music' | 'community' | 'shop' | 'rewards' | 'leaderboard' | 'login' | 'register' | 'settings';
 type LessonPackId = string;
 type LessonPack = {
   id: LessonPackId;
@@ -2596,6 +2598,9 @@ export default function App() {
           <button className={view === 'chess' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('chess')}>
             <ButtonLabel icon={Gamepad2}>Chess</ButtonLabel>
           </button>
+          <button className={view === 'community' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('community')}>
+            <ButtonLabel icon={Users}>Account & Friends</ButtonLabel>
+          </button>
           <button className={view === 'music' ? 'menu-button menu-button--active' : 'menu-button'} type="button" onClick={() => setView('music')}>
             <ButtonLabel icon={Music}>Music</ButtonLabel>
           </button>
@@ -2719,7 +2724,8 @@ export default function App() {
           </section>
         )}
 
-        {view === 'chess' && <ChessCourse displayName={playerName || 'Guest'} />}
+        {view === 'chess' && <ChessCourse displayName={playerName || 'Guest'} accountId={oauthUserId} />}
+        {view === 'community' && <CommunityPage userId={oauthUserId} displayName={playerName || 'Player'} avatarUrl={profileImageUrl} onSignIn={() => void signInWithGoogle()} />}
         {view === 'music' && <MusicCourse />}
 
         {view === 'lessons' && (

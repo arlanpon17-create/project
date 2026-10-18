@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Chess, type Square } from 'chess.js';
 import { saveChessRecord } from '../lib/chessRecords';
+import { chooseBotMove, type ChessBotDifficulty } from '../lib/chessBot';
 
 type OnlineMove = { id: string; from: string; to: string; promotion: 'q' };
 type Props = {
@@ -8,6 +9,7 @@ type Props = {
   playerColor?: 'w' | 'b';
   remoteMove?: OnlineMove | null;
   onMove?: (move: { from: string; to: string; promotion: 'q' }) => void;
+  botDifficulty?: ChessBotDifficulty;
 };
 type PieceKey = `${'w' | 'b'}${'k' | 'q' | 'r' | 'b' | 'n' | 'p'}`;
 
@@ -27,7 +29,7 @@ function getStatus(game: Chess, mode: Props['mode'], playerColor: 'w' | 'b' = 'w
   return `${side} to move${game.isCheck() ? ' — check!' : '.'}`;
 }
 
-export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove }: Props) {
+export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove, botDifficulty = 'medium' }: Props) {
   const gameRef = useRef(new Chess());
   const [revision, setRevision] = useState(0);
   const [selected, setSelected] = useState<Square | null>(null);
@@ -63,22 +65,13 @@ export default function ChessGame({ mode, playerColor = 'w', remoteMove, onMove 
   useEffect(() => {
     if (mode !== 'trainer' || game.turn() !== 'b' || game.isGameOver()) return;
     const timer = window.setTimeout(() => {
-      const moves = game.moves({ verbose: true });
-      const move = moves
-        .map((candidate) => ({
-          candidate,
-          score: (candidate.captured ? pieceValues[candidate.captured] : 0)
-            + (candidate.promotion ? 8 : 0)
-            + (candidate.san.endsWith('+') ? 2 : 0)
-            + Math.random(),
-        }))
-        .sort((first, second) => second.score - first.score)[0]?.candidate;
+      const move = chooseBotMove(game, botDifficulty);
       if (move) game.move(move);
       setSelected(null);
       setRevision((value) => value + 1);
     }, 550);
     return () => window.clearTimeout(timer);
-  }, [game, mode, revision]);
+  }, [botDifficulty, game, mode, revision]);
 
   useEffect(() => {
     if (mode !== 'online' || !remoteMove || remoteMove.id === lastRemoteMoveRef.current) return;

@@ -1,5 +1,5 @@
 export type PlayerStatus = 'available' | 'invited' | 'playing';
-export type PresencePlayer = { playerId: string; displayName: string; status: PlayerStatus };
+export type PresencePlayer = { playerId: string; accountId?: string; displayName: string; status: PlayerStatus };
 export type Invite = { inviteId: string; fromId: string; fromName: string; toId: string };
 export type Response = { inviteId: string; fromId: string; fromName?: string; toId: string; accepted: boolean };
 export type Match = { inviteId: string; opponentId: string; opponentName: string; color: 'w' | 'b' };

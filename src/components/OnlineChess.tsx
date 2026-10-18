@@ -4,12 +4,14 @@ import { supabase } from '../lib/supabase';
 import { chessLobbyName, createChessClientId, type ActiveState, type Invite, type Match, type PlayerStatus, type PresencePlayer, type RemoteMove, type Response } from '../lib/onlineChessTypes';
 import ChessGame from './ChessGame';
 import OnlineChessLobby from './OnlineChessLobby';
+import { loadCommunity } from '../lib/community';
 
-export default function OnlineChess({ displayName }: { displayName: string }) {
+export default function OnlineChess({ displayName, accountId }: { displayName: string; accountId?: string }) {
   const [playerId] = useState(createChessClientId);
   const onlineName = displayName === 'Guest' ? `Guest-${playerId.slice(0, 4)}` : displayName;
   const [connected, setConnected] = useState(false);
   const [players, setPlayers] = useState<PresencePlayer[]>([]);
+  const [friendIds, setFriendIds] = useState<string[]>([]);
   const [incoming, setIncoming] = useState<Invite | null>(null);
   const [outgoing, setOutgoing] = useState<Invite | null>(null);
   const [match, setMatch] = useState<Match | null>(null);
@@ -19,6 +21,14 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
   const activeRef = useRef<ActiveState>({ incoming: null, outgoing: null, match: null });
   const timeoutRef = useRef<number | null>(null);
   activeRef.current = { incoming, outgoing, match };
+
+  useEffect(() => {
+    if (!accountId) return;
+    void loadCommunity(accountId).then(({ friendships }) => {
+      setFriendIds(friendships.filter((friendship) => friendship.status === 'accepted')
+        .map((friendship) => friendship.requester_id === accountId ? friendship.recipient_id : friendship.requester_id));
+    }).catch(() => setFriendIds([]));
+  }, [accountId]);
 
   useEffect(() => {
     const channel = supabase.channel(chessLobbyName, {
@@ -34,7 +44,7 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
         setMatch(null);
         setRemoteMove(null);
         setNotice('Your opponent disconnected. Find another player when you’re ready.');
-        void channel.track({ playerId, displayName: onlineName, status: 'available' satisfies PlayerStatus });
+        void channel.track(createPresence(playerId, accountId, onlineName, 'available'));
       }
     });
     channel.on('broadcast', { event: 'invite' }, ({ payload }) => {
@@ -47,7 +57,7 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
       }
       setIncoming(invite);
       setNotice(`${invite.fromName} challenged you to chess.`);
-      void channel.track({ playerId, displayName: onlineName, status: 'invited' satisfies PlayerStatus });
+      void channel.track(createPresence(playerId, accountId, onlineName, 'invited'));
     });
     channel.on('broadcast', { event: 'response' }, ({ payload }) => {
       const response = payload as Response;
@@ -56,7 +66,7 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
       if (!currentState.outgoing && currentState.incoming?.inviteId === response.inviteId && !response.accepted) {
         setIncoming(null);
         setNotice('The challenge was cancelled by the other player.');
-        void channel.track({ playerId, displayName: onlineName, status: 'available' satisfies PlayerStatus });
+        void channel.track(createPresence(playerId, accountId, onlineName, 'available'));
         return;
       }
       const current = currentState.outgoing;
@@ -67,10 +77,10 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
       if (response.accepted) {
         setMatch({ inviteId: response.inviteId, opponentId: response.fromId, opponentName: response.fromName ?? 'Player', color: 'w' });
         setNotice('Challenge accepted. You are White.');
-        void channel.track({ playerId, displayName: onlineName, status: 'playing' satisfies PlayerStatus });
+        void channel.track(createPresence(playerId, accountId, onlineName, 'playing'));
       } else {
         setNotice('That player declined. Choose another player.');
-        void channel.track({ playerId, displayName: onlineName, status: 'available' satisfies PlayerStatus });
+        void channel.track(createPresence(playerId, accountId, onlineName, 'available'));
       }
     });
     channel.on('broadcast', { event: 'move' }, ({ payload }) => {
@@ -87,13 +97,13 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
       activeRef.current.match = null;
       setRemoteMove(null);
       setNotice('Your opponent left the game. Find another player when you’re ready.');
-      void channel.track({ playerId, displayName: onlineName, status: 'available' satisfies PlayerStatus });
+      void channel.track(createPresence(playerId, accountId, onlineName, 'available'));
     });
     channel.subscribe((status) => {
       if (status === 'SUBSCRIBED') {
         setConnected(true);
         setNotice('You are in the chess lobby. Find a random player to challenge.');
-        void channel.track({ playerId, displayName: onlineName, status: 'available' satisfies PlayerStatus });
+        void channel.track(createPresence(playerId, accountId, onlineName, 'available'));
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
         setConnected(false);
         setNotice('Could not connect to the chess lobby. Check the internet and try again.');
@@ -104,14 +114,14 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
       void supabase.removeChannel(channel);
       channelRef.current = null;
     };
-  }, [displayName, onlineName, playerId]);
+  }, [accountId, displayName, onlineName, playerId]);
 
   function updatePresence(status: PlayerStatus) {
-    void channelRef.current?.track({ playerId, displayName: onlineName, status });
+    void channelRef.current?.track(createPresence(playerId, accountId, onlineName, status));
   }
 
-  function findRandomPlayer() {
-    const candidates = players.filter((player) => player.status === 'available');
+  function findRandomPlayer(targetPlayer?: PresencePlayer) {
+    const candidates = targetPlayer ? [targetPlayer] : players.filter((player) => player.status === 'available');
     if (!connected) return setNotice('Still connecting to the chess lobby.');
     if (match || outgoing) return;
     if (candidates.length === 0) return setNotice('No other players are waiting right now. Keep this page open and try again.');
@@ -168,11 +178,14 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
     <OnlineChessLobby
       connected={connected}
       players={players}
+      friendIds={friendIds}
+      hasAccount={Boolean(accountId)}
       incoming={incoming}
       outgoing={outgoing}
       match={match}
       notice={notice}
-      onFind={findRandomPlayer}
+      onFind={() => findRandomPlayer()}
+      onChallengeFriend={(player) => findRandomPlayer(player)}
       onCancel={() => {
         if (!outgoing) return;
         if (timeoutRef.current !== null) window.clearTimeout(timeoutRef.current);
@@ -187,4 +200,8 @@ export default function OnlineChess({ displayName }: { displayName: string }) {
       {match && <ChessGame key={match.inviteId} mode="online" playerColor={match.color} remoteMove={remoteMove} onMove={sendMove} />}
     </OnlineChessLobby>
   );
+}
+
+function createPresence(playerId: string, accountId: string | undefined, displayName: string, status: PlayerStatus): PresencePlayer {
+  return { playerId, accountId, displayName, status };
 }

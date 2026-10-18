@@ -5,13 +5,15 @@ import ChessLessons from './ChessLessons';
 import ChessTrainer from './ChessTrainer';
 import ChessHistory from './ChessHistory';
 import OnlineChess from './OnlineChess';
+import type { ChessBotDifficulty } from '../lib/chessBot';
 
 type CourseView = 'home' | 'study' | 'trainer' | 'play' | 'online' | 'history';
 type GameMode = 'trainer' | 'local';
 
-export default function ChessCourse({ displayName }: { displayName: string }) {
+export default function ChessCourse({ displayName, accountId }: { displayName: string; accountId?: string }) {
   const [courseView, setCourseView] = useState<CourseView>('home');
   const [gameMode, setGameMode] = useState<GameMode>('trainer');
+  const [botDifficulty, setBotDifficulty] = useState<ChessBotDifficulty>('medium');
 
   return (
     <section className="menu-panel chess-course" aria-label="Chess course">
@@ -41,7 +43,7 @@ export default function ChessCourse({ displayName }: { displayName: string }) {
       {courseView === 'study' && <ChessLessons onStartTrainer={() => setCourseView('trainer')} />}
       {courseView === 'trainer' && <ChessTrainer />}
       {courseView === 'history' && <ChessHistory />}
-      {courseView === 'online' && <OnlineChess displayName={displayName} />}
+      {courseView === 'online' && <OnlineChess displayName={displayName} accountId={accountId} />}
       {courseView === 'play' && (
         <>
           <div className="chess-mode-picker" role="group" aria-label="Choose opponent">
@@ -52,7 +54,15 @@ export default function ChessCourse({ displayName }: { displayName: string }) {
               <Users aria-hidden="true" size={18} /> Play someone here
             </button>
           </div>
-          <ChessGame key={gameMode} mode={gameMode} />
+          {gameMode === 'trainer' && <div className="chess-mode-picker" role="group" aria-label="Choose bot difficulty">
+            <span>Bot difficulty</span>
+            {(['easy', 'medium', 'hard'] as const).map((difficulty) => (
+              <button className={botDifficulty === difficulty ? 'chess-mode chess-mode--active' : 'chess-mode'} type="button" key={difficulty} onClick={() => setBotDifficulty(difficulty)}>
+                {difficulty[0].toUpperCase() + difficulty.slice(1)}
+              </button>
+            ))}
+          </div>}
+          <ChessGame key={gameMode} mode={gameMode} botDifficulty={botDifficulty} />
         </>
       )}
     </section>
